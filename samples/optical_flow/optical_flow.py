@@ -192,9 +192,14 @@ def optical_flow(target=target):
       s.to([image4, image3, image2, image1, image0], target.xcel, occ=1)
       s.to(output, target.host)
       # reuse buffer
-      k_grad = kernel.grad_weight_y
-      s.reuse_at(k_grad.grad_x, s[k_grad], k_grad.axis[1])
-    print(hcl.lower(s))
+      k_grad_y = kernel.grad_weight_y
+      k_grad_x = kernel.grad_weight_x
+      s.reuse_at(k_grad_y.grad_x, s[k_grad_y], k_grad_y.axis[1])
+      # pipeline streaming rd/wr 
+      s[k_grad_x].pipeline(k_grad_x.axis[1])
+      s[k_grad_y].pipeline(k_grad_y.axis[1])
+
+    # print(hcl.lower(s))
     return hcl.build(s, target)
 
 g_w = hcl.asarray(np.array([-1, -8, 0, 8, 1]), dtype)
