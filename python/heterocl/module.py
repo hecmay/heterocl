@@ -25,6 +25,9 @@ class Module(object):
                 elif isinstance(arg, (_expr.Expr, TensorSlice)):
                     new_args.append(arg)
             else:
+                arg_shape = [_.value for _ in arg.buf.shape]
+                assert list(shape) == arg_shape, \
+                       "wrong data shape: " + str(shape) 
                 new_args.append(arg.buf.data)
         input_stages = set([])
         lhs_tensors = set([])

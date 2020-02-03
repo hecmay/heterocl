@@ -120,8 +120,7 @@ void CodeGenC::AddFunction(LoweredFunc f,
 }
 
 std::string CodeGenC::GetHost() {
-  if (!fpga_scope_)
-    host_stream << stream.str(); 
+  host_stream << stream.str(); 
   std::string postproc = host_stream.str();
   return postproc;
 }
@@ -139,8 +138,6 @@ std::string CodeGenC::GetDevice() {
 
 std::string CodeGenC::Finish() {
   std::ostringstream device;
-  device << "void top(" << arg_stream.str() 
-         << "){\n" << device_stream.str();
   if (fpga_scope_) device << stream.str();
   else host_stream << stream.str(); 
   device << "}\n";
@@ -384,6 +381,14 @@ void CodeGenC::PrintType(Type t, std::ostream& os) {  // NOLINT(*)
       }
       case 1: os << "int"; return;
     }
+    if (t.bits() < 8) { os << "int8_t";  return;
+    } else if (t.bits() < 16)  { os << "uint16_t"; return;
+    } else if (t.bits() < 32)  { os << "uint32_t"; return;
+    } else if (t.bits() < 64)  { os << "uint64_t"; return;
+    } else if (t.bits() < 128) { os << "uint64_t"; return;
+    } else {
+      LOG(FATAL) << "Cannot convert type " << t << " to C type";
+    }
   } else if (t.is_int()) {
     switch (t.bits()) {
       case 8: case 16: case 32: case 64: {
@@ -391,9 +396,10 @@ void CodeGenC::PrintType(Type t, std::ostream& os) {  // NOLINT(*)
       }
     }
     if (t.bits() < 8) { os << "int8_t";  return;
-    } else if (t.bits() < 16) { os << "int16_t"; return;
-    } else if (t.bits() < 32) { os << "int32_t"; return;
-    } else if (t.bits() < 64) { os << "int64_t"; return;
+    } else if (t.bits() < 16)  { os << "int16_t"; return;
+    } else if (t.bits() < 32)  { os << "int32_t"; return;
+    } else if (t.bits() < 64)  { os << "int64_t"; return;
+    } else if (t.bits() < 128) { os << "int64_t"; return;
     } else {
       LOG(FATAL) << "Cannot convert type " << t << " to C type";
     }

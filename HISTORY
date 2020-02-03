@@ -11,6 +11,11 @@
 
     * 3. update the simulation flow : we separate the simultaion to two stages a) generate wrapper code and compile. The wrapper code copies the data from python front-end to the execution engine (e.g. TVM PackedFunc) b) update and execute. The array args are automaticallly copied using the shared memory initialized in wrapper code. However, the scalar varible needs to be update. **To summarize**, the simulation enables a one-time compilation, which frees the users from compiling the program everytime when calling the function.
 
+# 2020-02-01
+  * TODO: create opencl host codegen
+    * 1. Annotate KernelStmt & KernelDef in stream inference IR pass (if a kernel calls a global variable, then the storage scope of the arg in kernel def should be annotated as global)
+    * 2. check the data shape when calling the heterocl module 
+
 # 2020-01-31
   * create reusable conv2d function in hlib
   * fixed clang seg fault (kernel name mis-matching)

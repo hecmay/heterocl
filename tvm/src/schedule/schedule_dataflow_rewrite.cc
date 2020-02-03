@@ -760,7 +760,7 @@ Tensor Schedule::move_to(const Tensor& target,
                          DeviceType device_type,
                          StreamType stream_type,
                          int channel_depth, 
-                         std::string new_name) {
+                         int occurrence) {
   Stage target_stage = (*this)[target];
   std::vector<Stage> consumers; 
   size_t num_stage = (*this)->stages.size();
@@ -789,12 +789,20 @@ Tensor Schedule::move_to(const Tensor& target,
     min_pos = FindNodeRef(stages, target_stage) + 1;
     const ExternOpNode* op = target_stage->op.as<ExternOpNode>();
     target_buffer = op->output_placeholders[0];
+    int use_count = 1; // use count 
     for (size_t i = 0; i < num_stage; i++) {
       Stage s = (*this)->stages[i];
       if (const ExternOpNode* stage_op = s->op.as<ExternOpNode>()) {
         for (size_t j = 0; j < stage_op->inputs.size(); j++) {
           if (op->output_placeholders[0] == stage_op->input_placeholders[j]) {
-            min_pos = i + 1; // find out the last usage of target tensor 
+            // find out the last usage of target tensor
+            if (occurrence == 0) {
+              min_pos = i + 1; 
+            } else if (use_count < occurrence) { 
+              // udpate minimal pos until hit occurrence
+              min_pos = i + 1;
+              use_count += 1; 
+            }
             consumers.push_back(s);
             break;
           }
@@ -957,9 +965,10 @@ Tensor Schedule::move_to(const Tensor& target,
   // recv stage creation + return tensor 
   Stage producer_stage = Stage(producer->op);
   size_t pos = FindNodeRef(stages, consumer_stage);
+  // where to insert the streaming receiver
   if (split_bound == 0 || device_type == DeviceType::CPU) 
     pos = pos + 1;
-  else pos = split_bound + 1; 
+  else pos = split_bound; 
   stages->data.insert(stages->data.begin() + pos, producer_stage.node_);
   (*this)->stage_map.Set(producer->op, producer_stage);
 

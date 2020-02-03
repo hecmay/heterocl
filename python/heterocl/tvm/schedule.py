@@ -335,7 +335,7 @@ class _Schedule(NodeBase):
 
     def to(self, tensor, dst, src, 
            types=_expr.StreamExpr.Channel, 
-           depth=1, name=None):
+           depth=1, name=None, occ=0):
         """ Stream data to devices or on-chip module 
 
         Parameters
@@ -356,7 +356,8 @@ class _Schedule(NodeBase):
         if isinstance(dst, Device): 
             dst = 1 if 'fpga' in str(dst) else 0
             return _api_internal._ScheduleMove(self, tensor, dst,
-                                               types, depth, name)
+                                               types, depth, occ)
+
         else: # connect kernel (mutate kernel def)
             assert isinstance(dst, _Stage), "dst not a stage "
             # infer the argument position 
@@ -369,7 +370,9 @@ class _Schedule(NodeBase):
 
             if len(match) > 1:
                 names = [str(n).replace(dst.op.name + ".", "") for n in dst.op.body.args]
-                assert str(tensor.op.name) in names, "unknwon arg, please specify id " + str(names) + ":" + str(tensor.op.name)
+                assert str(tensor.op.name) in names, \
+                       "unknwon arg, please specify id " + \
+                       str(names) + ":" + str(tensor.op.name)
                 match = [names.index(str(tensor.op.name))]
 
             if src: # streaming channel between kernels 
@@ -383,7 +386,8 @@ class _Schedule(NodeBase):
 
                 if len(match) > 2: # use name for matching
                   names = [str(n).lstrip(src.op.name + ".") for n in src.op.body.args]
-                  assert str(tensor.op.name) in names, "unknwon arg, please specify id"
+                  assert str(tensor.op.name) in names, \
+                         "unknwon arg, please specify id"
                   match = [match[0], names.index(str(tensor.op.name))]
 
                 _api_internal._ScheduleStream(self, tensor, dst, src, 

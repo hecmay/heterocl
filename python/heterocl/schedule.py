@@ -137,7 +137,8 @@ class Schedule(object):
         return self.sch.reuse_at(target, parent, axis, name)
 
     def to(self, tensors, dst, src=None,
-           stream_type=_expr.StreamExpr.Channel, depth=1, name=None):
+           stream_type=_expr.StreamExpr.Channel, 
+           depth=1, name=None, occ=0):
         """Stream a list of Tensors to dst devices 
         
         Parameters
@@ -169,7 +170,7 @@ class Schedule(object):
             if src is None: # record placement 
                 self.placement[target.name] = dst
             ret = self.sch.to(target, dst, src, 
-                              stream_type, depth, name)
+                              stream_type, depth, name, occ)
             name = None
             rets.append(ret)
         return rets

@@ -575,11 +575,14 @@ void GenHostHeaders(std::ofstream& stream,
     stream << "#include \"CLKernel.h\"\n";
     stream << "#include \"CLMemObj.h\"\n";
     stream << "#include \"utils.h\"\n";
+    stream << "#include \"ap_fixed.h\"\n";
     stream << "#include <cmath>\n\n";
     stream << "// harness namespace\n";
     stream << "using namespace rosetta;\n\n";
+
   } else if (platform == "vivado_hls" || 
              platform == "vivado" || platform == "sdsoc") {
+
     if (platform == "sdsoc") 
       stream << "#include \"sds_lib.h\"\n";
     stream << "// vivado hls headers\n";
@@ -661,11 +664,16 @@ void KernelInit(std::ofstream& stream,
 )";
 
   // TODO: push arg-mem setups to codegen  
-  stream << R"(
+  if (args.size() == 3) { // digitrec
+    stream << R"(
   world.setIntKernelArg(0, 1, test_image);
   world.setMemKernelArg(0, 0, 0);
   world.setMemKernelArg(0, 2, 1);
-)";
+)"; } else { // optical flow 
+    for (int i = 0; i < args.size(); i++)
+      stream << "  world.setMemKernelArg(0, " 
+             << i << ", " << i << ");\n";
+  }
 
   stream << "\n";
   PrintIndent(stream, indent);
@@ -675,7 +683,14 @@ void KernelInit(std::ofstream& stream,
   PrintIndent(stream, indent);
   stream << "// read the data back\n";
   PrintIndent(stream, indent);
-  stream << "world.readMemObj(1);\n";
+
+  // TODO: push arg-mem setups to codegen  
+  if (args.size() == 3) { // digitrec
+    stream << "world.readMemObj(1);\n";
+  } else {
+    for (int i = 0; i < args.size(); i++)
+      stream << "  world.readMemObj("<< i << ");\n";
+  }
 }
 
 // separate host code into partitions 
@@ -699,8 +714,10 @@ std::vector<std::string> SplitHostCode(std::string host_code,
   host_code = host_code.substr(host_code.find('\n', pos) + 1);
   while ((func_pos = host_code.find(delimiter)) != std::string::npos) {
     auto seg = host_code.substr(0, func_pos);
-    seg = seg.substr(seg.find_first_not_of(' '));
-    segments.push_back(seg);
+    if (seg.find_first_not_of(' ') != std::string::npos) {
+      seg = seg.substr(seg.find_first_not_of(' '));
+      segments.push_back(seg);
+    } else { segments.push_back("\n"); }
     host_code.erase(0, host_code.find(';', func_pos));
   }
   host_code = host_code.substr(host_code.find("\n"), host_code.rfind("}") - 1);
@@ -737,8 +754,9 @@ void GenHostCode(TVMArgs& args,
       stream << "shmat(" << shmids[i] << ", nullptr, 0);\n";
       PrintIndent(stream, indent);
 
-      stream << Type2Byte(arg_types[i]) << " ";
+      stream << Type2Byte(arg_types[i]) << "* ";
       stream << arg_names[i];
+      stream << " = new " << Type2Byte(arg_types[i]);
       TVMArray* arr = args[i];
 
       stream << "[";

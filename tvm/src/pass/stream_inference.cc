@@ -111,11 +111,13 @@ class StreamAnalysis final : public IRMutator {
       if (const Variable* v = api_args[i].as<Variable>()) {
         Expr expr = Expr(api_args[i].node_);
         bind_buffer_map_[v->name_hint] = expr;
+        top_arg_names.insert(v->name_hint);
 
       // replace buffers with tensor expr
       } else if (auto buf = api_args[i].as<BufferNode>()) {
         CHECK(buf->data.as<Variable>());
         bind_buffer_map_[buf->name] = Expr(buf->data.node_);
+        top_arg_names.insert(buf->name); 
       }
     }
   };
@@ -230,8 +232,13 @@ class StreamAnalysis final : public IRMutator {
   }
 
   Stmt Mutate_(const KernelStmt* op, const Stmt& s) final {
+    int pos = 0;
     for (auto arg : op->args) {
       this->HandleUse(arg);
+      auto name = arg.as<Variable>()->name_hint;
+      if (top_arg_names.find(name) != top_arg_names.end())
+        kernel_arg_scope_[op->name].insert(pos);
+      pos += 1;
     }
     return IRMutator::Mutate_(op, s);
   }
@@ -295,6 +302,11 @@ class StreamAnalysis final : public IRMutator {
   std::vector<Array<Var>> streaming_vars;
   // replace unbinded buffer with tensor 
   std::unordered_map<std::string, Expr> bind_buffer_map_;
+  // top argument name set
+  std::unordered_set<std::string> top_arg_names;
+  // kernel name to global scope arg position 
+  std::unordered_map<std::string, std::unordered_set<int>> kernel_arg_scope_;
+
 };
 
 
@@ -314,23 +326,6 @@ class StreamMutator : public IRMutator {
           inner->attr_key == attr::device_scope &&
           inner->value.as<StringImm>()->value == scope)  
         return stmt.as<AttrStmt>()->body;
-    }
-    return stmt;
-  }
-
-  // remove allocate for var.new
-  Stmt Mutate_(const Allocate* op, const Stmt& s) final {
-    Stmt stmt = IRMutator::Mutate_(op, s);
-    if (auto block = op->body.as<Block>()) {
-      if (auto producer = block->first.as<ProducerConsumer>()) {
-        if (auto extern_attr = producer->body.as<AttrStmt>()) {
-          if (auto device_attr = extern_attr->body.as<AttrStmt>()) {
-            if (device_attr->attr_key == attr::device_scope) {
-              auto scope = device_attr->value.as<StringImm>()->value;
-            }
-          }
-        }
-      }
     }
     return stmt;
   }
@@ -931,7 +926,35 @@ class SplitDevice final : public IRMutator {
   // shape & dtype from api_args buffers
   std::unordered_map<const Variable*, Array<Expr>> api_shape_;
   std::unordered_map<const Variable*, Type> api_dtype_;
+};
 
+// add annotation to kernel def node 
+class KernelAnnotator final : public IRMutator {
+ public:
+  KernelAnnotator(
+    std::unordered_map<std::string, std::unordered_set<int>> map) :
+    arg_scope_map_(map) {} 
+
+  Stmt Mutate_(const KernelDef *op, const Stmt& s) final {
+    if (arg_scope_map_.count(op->name)) {
+      auto set = arg_scope_map_[op->name];
+      Array<Expr> channels = op->channels;
+
+      // insert annotation (pos : index = -1) indicate global
+      for (size_t i = 0; i < op->args.size(); i++) {
+        if (set.find(i) != set.end()) {
+          channels.push_back(IntImm::make(Int(32), i));
+          channels.push_back(IntImm::make(Int(32), -1));
+        }
+      }
+      return KernelDef::make(op->args, op->api_args, op->api_types, 
+                 op->body, op->ret_void, op->ret_type, op->name, channels);
+    }
+    return s;
+  }
+
+ private:
+  std::unordered_map<std::string, std::unordered_set<int>> arg_scope_map_;
 };
 
 Stmt InferStream(Stmt stmt,  
@@ -954,6 +977,9 @@ Stmt InferStream(Stmt stmt,
                      /*undefined arg array*/analyzer.streaming_vars, 
                      /*device scope stmts*/grouper.stmt_stack,
                      /*kernel stmts*/grouper.kernel_stack).SplitScope(stmt);
+
+  // mark kernel def with storage scope
+  stmt = KernelAnnotator(analyzer.kernel_arg_scope_).Mutate(stmt);
   return stmt;
 }
 

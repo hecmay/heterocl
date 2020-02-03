@@ -367,7 +367,7 @@ class Schedule : public NodeRef {
                         ir::DeviceType device_type,
                         ir::StreamType stream_type,
                         int channel_depth, 
-                        std::string new_name);
+                        int occurrence);
 
   EXPORT void stream_to(const Tensor& target,
                         Stage dest,

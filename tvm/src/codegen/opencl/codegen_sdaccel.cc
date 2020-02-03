@@ -206,7 +206,23 @@ void CodeGenSDACCEL::VisitStmt_(const Partition* op) {
 }
 
 void CodeGenSDACCEL::VisitStmt_(const Store* op) {
-  if (auto e = op->value.as<StreamExpr>()) {
+  // handle SetSlice
+  if (const SetSlice* ss = op->value.as<SetSlice>()) {
+    Type t = op->value.type();
+    Expr new_index_left = ir::Simplify(ss->index_left - 1);
+    std::string ref = this->GetBufferRef(t, op->buffer_var.get(), op->index);
+    PrintIndent(); 
+    this->stream << ref
+                 << "(" << PrintExpr(new_index_left) << ", " << PrintExpr(ss->index_right)
+                 << ") = " << PrintExpr(ss->value) << ";\n";
+  } else if (const SetBit* sb = op->value.as<SetBit>()) {
+    Type t = op->value.type();
+    std::string ref = this->GetBufferRef(t, op->buffer_var.get(), op->index);
+    PrintIndent();
+    this->stream << ref
+                 << "[" << PrintExpr(sb->index)
+                 << "] = " << PrintExpr(sb->value) << ";\n";
+  } else if (auto e = op->value.as<StreamExpr>()) {
     // temp input to store data
     this->PrintIndent();
     stream << "int temp_in;\n";
@@ -222,6 +238,7 @@ void CodeGenSDACCEL::VisitStmt_(const Store* op) {
     CodeGenC::VisitStmt_(op);
   }
 };
+
 
 void CodeGenSDACCEL::VisitStmt_(const Allocate* op) {
   CHECK(!is_zero(op->condition));
@@ -247,7 +264,8 @@ void CodeGenSDACCEL::VisitStmt_(const Allocate* op) {
 
     // ignore channel and pipe buffers
     if (vid.find("c_buf_") == std::string::npos &&
-        vid.find("channel") == std::string::npos) {
+        vid.find("channel") == std::string::npos &&
+        vid.find("_new") == std::string::npos) {
       this->PrintIndent();
       // PrintStorageScope(scope, stream);
       PrintType(op->type, stream);
@@ -322,7 +340,7 @@ void CodeGenSDACCEL::VisitStmt_(const KernelDef* op) {
     auto idx = op->channels[i+1].as<IntImm>()->value;
     arg_info[pos] = idx;
   }
-    
+
   // add function attribute and arguments 
   bool top_func = false;
   if (op->name.substr(0,13) == "top_function_") {
@@ -332,6 +350,15 @@ void CodeGenSDACCEL::VisitStmt_(const KernelDef* op) {
     // stream << "__attribute__((xcl_dataflow))\n";
   } else { // static sub function on kernel 
     stream << "static ";
+  }
+
+  // check argument scope 
+  CHECK(op->channels.size() % 2 == 0);
+  std::unordered_set<int> global_arg_pos;
+  for (size_t i = 0; i < op->channels.size(); i+=2) {
+    auto pos = op->channels[i].as<IntImm>()->value; 
+    auto idx = op->channels[i+1].as<IntImm>()->value; 
+    if (idx == -1) global_arg_pos.insert(pos);
   }
 
   stream << "void";
@@ -346,15 +373,16 @@ void CodeGenSDACCEL::VisitStmt_(const KernelDef* op) {
     std::string str = PrintExpr(op->api_types[i]);
     Type type = String2Type(str);
 
-    if (v.type().is_handle() && op->api_args[i].size() > 1) {
-      
+    if (v.type().is_handle()) {
       // global scope for top func args
       if (top_func) {
         this->stream << "__global ";
+
       } else { // sub function ptr
         auto len = op->name.length() + 1;
         auto arg = vid.substr(len); 
-        if (arg_names.find(arg) != arg_names.end())
+        if (arg_names.find(arg) != arg_names.end() ||
+            global_arg_pos.find(i) != global_arg_pos.end())
           this->stream << "__global ";
       }
          
