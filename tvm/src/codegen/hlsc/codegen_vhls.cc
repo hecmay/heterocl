@@ -21,94 +21,14 @@
 namespace TVM {
 namespace codegen {
 
-class VarCollector : public IRVisitor {
- public:
-  explicit VarCollector(
-      std::unordered_map<const Variable*, Expr>& range)
-      : range_(range) {}
-  void Visit_(const Variable* op) {
-    if (range_.find(op) == range_.end()) 
-      var_list_[op] = Expr(0);
-  }
-  std::unordered_map<const Variable*, Expr> var_list_;
- private:
-  std::unordered_map<const Variable*, Expr>& range_;
+class StreamChecker final : public IRVisitor {
+  public:
+    bool stream_fifo{false};
+    void Visit_(const Allocate* op) {
+      if (op->attrs.size() > 0) stream_fifo = true;
+      this->Visit(op->body);
+    }
 };
-
-// add local buffers to generated kernel code 
-void CodeGenVivadoHLS::PreProcess(std::ostringstream& os) {
-  if (sdsoc_mode) return;
-  os << "\n";
-  int indent = 2;
-  for (size_t i = 0; i < arg_vars.size(); i++) {
-    auto v = arg_vars[i];
-    std::string arg_name;
-    if (stream_table[v]) 
-      arg_name = arg_top_vars[v].name;
-    else arg_name = GetVarID(v); 
-
-    // create local buffer saving result
-    auto shape = arg_top_vars[v].shape;
-    auto dtype = arg_top_vars[v].type;
-    if (!stream_table[v]) { // unstreamed args 
-      // allocate local buffer 
-      for (int k = 0; k < indent; k++) os << ' ';
-      PrintType(dtype, os); 
-      os << " " << arg_name << "[";
-      for (size_t n = 0; n < shape.size(); n++) {
-        os << shape[n];
-        if (n != shape.size() - 1) os << "* ";
-      } 
-      os << "];\n";
- 
-      for (size_t j = 0; j < shape.size(); j++) {
-        for (int k = 0; k < indent; k++) os << ' ';
-        os << "for (int i" << j << " = 0; i"
-           << j << "< " << shape[j] << "; i" 
-           << j << "++) {\n";
-        // pass stream reference
-        if (j == shape.size() - 1) {
-          for (int k = 0; k < indent; k++) os << ' ';
-          os << "  " << arg_name << "["
-             << getIndex(shape) << "] = "  
-             << "fd_" << arg_name << ".read();\n";
-        }
-        indent += 2;
-      }
-      for (size_t m = 0; m < shape.size(); m++) {
-        indent -= 2;
-        for (int k = 0; k < indent; k++) os << ' ';
-        os << "}\n";
-      }
-    } else if (i == arg_vars.size() - 1 || true) { 
-      // allocate for return variable 
-      for (int k = 0; k < indent; k++) os << ' ';
-      PrintType(dtype, os); 
-      os << " " << arg_name << "[";
-      for (size_t n = 0; n < shape.size(); n++) {
-        os << shape[n];
-        if (n != shape.size() - 1) os << "* ";
-      } 
-      os << "];\n";
-    }
-  }
-}
-
-void CodeGenVivadoHLS::PostProcess(std::ostringstream& os) {
-  // remove alloc of xcel defined & host consumed var 
-  std::string update = os.str();
-  for (auto& kv : host_undefined) {
-    for (auto& var : kv.second) {
-      auto v = var.get();
-      size_t pos = update.find(v->name_hint + "[");
-      size_t end = update.find('\n', pos);
-      size_t start = update.rfind('\n', pos);
-      update.erase(start, end-start);
-    }
-  }
-  os.str(""); os.clear();
-  os << update; 
-}
 
 void CodeGenVivadoHLS::AddFunction(LoweredFunc f,
         str2tupleMap<std::string, Type> map_arg_type) {
@@ -169,30 +89,88 @@ void CodeGenVivadoHLS::VisitStmt_(const Store* op) {
     this->stream << ref
                  << "[" << PrintExpr(sb->index)
                  << "] = " << PrintExpr(sb->value) << ";\n";
-  } else if (const StreamExpr* se = op->value.as<StreamExpr>()) {
-    std::string vid = GetVarID(se->buffer_var.get()); 
-    vid = vid.substr(0, vid.find("_stream_send")); 
-    PrintIndent();
-    if (!sdsoc_mode) { // loading 
-      this->stream << vid << "["
-                   << op->index << "] = "
-                   << "fd_" << vid << ".read();\n";
-    } else { // skip load in xcel 
-      if (fpga_scope_)
-        this->stream << "void(0);\n";
-      else // read data back
-        this->stream << vid << "["
-                     << op->index << "] = "
-                     << "fd_" << vid << "[" 
-                     << op->index << "];\n";
-    }
   } else {
     CodeGenC::VisitStmt_(op);
   }
 }
 
+void CodeGenVivadoHLS::VisitStmt_(const Allocate* op) {
+  CHECK(!is_zero(op->condition));
+  std::string vid = AllocVarID(op->buffer_var.get());
+
+  if (op->new_expr.defined()) {
+    CHECK_EQ(op->free_function, "nop");
+    std::string new_data = PrintExpr(op->new_expr);
+    this->PrintIndent();
+    PrintType(op->type, stream);
+    stream << "* "<< vid << '=' << new_data << ";\n";
+  } else {
+    int32_t constant_size = op->constant_allocation_size();
+    CHECK_GT(constant_size, 0)
+        << "Can only handle constant size stack allocation for now";
+    const Variable* buffer = op->buffer_var.as<Variable>();
+
+    std::string scope; // allocate on local scope by default 
+    auto it = alloc_storage_scope_.find(buffer);
+    if (it != alloc_storage_scope_.end())
+      scope = alloc_storage_scope_.at(buffer);
+    else scope = "local";
+
+    // ignore channel and pipe buffers
+    if (vid.find("c_buf_") == std::string::npos &&
+        vid.find("channel") == std::string::npos &&
+        vid.find("_new") == std::string::npos) {
+
+      this->PrintIndent();
+      PrintType(op->type, stream);
+      stream << ' '<< vid;
+      if (constant_size > 1) // Transfer length one array to scalar
+        stream << '[' << constant_size << "]";
+      stream << ";\n";
+      // pragma STREAM
+      if (op->attrs.size() > 0) {
+        this->PrintIndent();
+        stream << "#pragma HLS STREAM " 
+               << "variable=" << vid << " depth=1\n";
+      }
+
+    } else if (vid.find("c_buf_") != std::string::npos) { // register pipes
+      // if (!pipes.count(vid)) {
+      //   pipes[vid] = 1; 
+      //   decl_stream << "pipe int " << vid
+      //               << " __attribute__((xcl_reqd_pipe_depth(32)));\n"; 
+      // }
+    }
+    buf_length_map_[buffer] = constant_size;
+  }
+  RegisterHandleType(op->buffer_var.get(), op->type);
+  this->PrintStmt(op->body);
+}
+
 void CodeGenVivadoHLS::VisitStmt_(const For* op) {
   std::ostringstream os;
+  // ignore the data tranmission for stmts
+  if (const For* for_op = op->body.as<For>()) {
+    while (for_op->body.as<For>())
+      for_op = for_op->body.as<For>();
+    if (auto s = for_op->body.as<StreamStmt>()) { 
+      if (s->buffer_var.get()->name_hint.find("channel") 
+          != std::string::npos) return;
+    } else if (auto st = for_op->body.as<Store>()) {
+      if (auto e = st->value.as<StreamExpr>()) {
+        if (e->buffer_var.get()->name_hint.find("channel")
+            != std::string::npos) return;
+      // ignore the initilization 
+      } else if (auto v = st->value.as<IntImm>()) {
+        if (v->value == 0) return;
+      } else if (auto v = st->value.as<FloatImm>()) {
+        if (v->value == 0) return;
+      } else if (auto v = st->value.as<UIntImm>()) {
+        if (v->value == 0) return;
+      }
+    }
+  }
+
   if (op->for_type == ForType::Unrolled) {
     int unroll_factor = 0, i = 0;
     for (auto key : op->annotate_keys) {
@@ -268,11 +246,8 @@ void CodeGenVivadoHLS::VisitExpr_(const StreamExpr* op, std::ostream& os) {
   if (channel_index == 0 && !sdsoc_mode) {
     os << vid << ".read()";
   } else { // axi stream: set the removed itervar as zero 
-    VarCollector visitor(range_);
-    visitor.Visit(index_expr);
-    index_expr = Simplify(Substitute(index_expr, visitor.var_list_));
-    os << vid << "[" 
-       << PrintExpr(index_expr) << "]";
+    // os << vid << "[" 
+    //    << PrintExpr(index_expr) << "]";
   }
 }
 
@@ -296,34 +271,6 @@ void CodeGenVivadoHLS::VisitStmt_(const StreamStmt* op) {
     else if (key == "index")
       index_expr = op->annotate_values[i];
   }
-  vid = vid.substr(0, vid.find("_stream_send")); 
-  auto load = op->value.as<Load>();
-  if (channel_index == 0) {
-    if (sdsoc_mode) { 
-      if (fpga_scope_) { // skip writing from xcel
-        stream << "void(0);\n"; return;
-      } else { // init value on host
-        stream << "fd_" << vid << "[";
-        PrintExpr(load->index, stream);
-        stream << "] = " << vid << "[";
-        PrintExpr(load->index, stream);
-        stream << "];\n";
-      }
-    } else { // write into hls stream 
-      stream << "fd_" << vid << ".write(" 
-             << vid << "[";
-      PrintExpr(load->index, stream);
-      stream << "]);\n";
-    }
-  } else { // hls axis interface
-    VarCollector visitor(range_);
-    visitor.Visit(index_expr);
-    index_expr = Simplify(Substitute(index_expr, visitor.var_list_));
-    stream << vid << "[" << PrintExpr(index_expr) << "] = ";
-    stream << GetVarID(load->buffer_var.get()) << "[";
-    PrintExpr(load->index, stream);
-    stream << "];\n";
-  }
 }
 
 class AllocateCollector final : public IRVisitor {
@@ -342,82 +289,6 @@ class AllocateCollector final : public IRVisitor {
     std::vector<const Allocate*>& alloc_list_;
     VarExprUnorderedSet& outputs_;
 };
-
-void CodeGenVivadoHLS::VisitStmt_(const AttrStmt* op) {
-  if (op->attr_key == ir::attr::device_scope) {
-    // print top( ... in host and enter fpga scope 
-    if (op->value.as<StringImm>()->value == "fpga" && !fpga_scope_) {
-      fpga_scope_ = true;
-      PrintIndent();
-  
-      stream << "top(";
-      // generte top function call with necessary args
-      for (size_t i = 0; i < arg_vars.size(); i++) {
-        auto v = arg_vars[i];
-        auto shape = arg_top_vars[v].shape;
-        std::string arg_name;
-        if (stream_table[v]) 
-          arg_name = arg_top_vars[v].name;
-        else arg_name = GetVarID(v); 
-        if (i != 0) stream << ", ";
-        if (shape.size() > 1 || shape[0] > 1) stream << "fd_"; 
-        stream << arg_name;
-
-        // generate kernel func definition
-        if (i != 0) arg_stream << ", ";
-        if ((shape.size() > 1 || shape[0] > 1) && !sdsoc_mode) { 
-          arg_stream << "hls::stream<";
-          PrintType(arg_top_vars[v].type, arg_stream);
-          arg_stream << ">& fd_" << arg_name;
-        } else { // for scalar & sdsoc
-          PrintType(arg_top_vars[v].type, arg_stream);
-          arg_stream << "* " << arg_name;
-        }
-      }
-      stream << ");\n";
-  
-      // switch context to device scope
-      host_stream << this->stream.str();
-      this->stream.str("");
-      this->stream.clear();
-  
-    // swtich from device to host
-    } else if (op->value.as<StringImm>()->value == "cpu" && 
-               fpga_scope_) {
-      fpga_scope_ = false;
-      device_stream << this->stream.str();
-      this->stream.str("");
-      this->stream.clear();
-    }
-    this->PrintStmt(op->body);
-
-  } else if (op->attr_key == "pragma") {
-    auto alloc = op->body.as<Allocate>();
-    CHECK(alloc != nullptr) << "wrong scope";
-
-    int32_t constant_size = alloc->constant_allocation_size();
-    std::string vid = AllocVarID(alloc->buffer_var.get());
-
-    PrintType(alloc->type, stream);
-    stream << ' '<< vid;
-    if (constant_size > 1) {
-      stream << "[";
-      for (size_t i = 0; i < alloc->extents.size(); i++) {
-        PrintExpr(alloc->extents[i], stream);
-        if (i != alloc->extents.size()-1) stream << "* ";
-      }
-      stream << "]";
-    }
-    stream << ";\n";
-    PrintIndent(); // consider add alloc->attrs
-    stream << "#pragma HLS STREAM variable=" 
-           << vid << " depth=10\n";
-    this->PrintStmt(alloc->body);
-
-  } else {
-    CodeGenC::VisitStmt_(op);
-  }
-}
 
 void CodeGenVivadoHLS::VisitStmt_(const KernelStmt *op) {
   PrintIndent();
@@ -465,78 +336,112 @@ void CodeGenVivadoHLS::VisitStmt_(const KernelDef* op) {
   for (size_t i = 0; i < op->channels.size(); i=i+2) {
     auto pos = op->channels[i].as<IntImm>()->value;
     auto idx = op->channels[i+1].as<IntImm>()->value;
-    arg_info[pos] = idx;
+    if (idx > 0) arg_info[pos] = idx;
   }
-    
-  // print function signature
-  PrintType(op->ret_type, stream);
-  size_t active_spot = 0;
-  stream << " " << op->name << "(";
-  for (size_t i = 0; i < op->args.size(); ++i) {
-    VarExpr v = op->args[i];
-    var_shape_map_[v.get()] = op->api_args[i];
-    std::string vid = AllocVarID(v.get());
-    if (i != 0) stream << ", ";
-    std::string str = PrintExpr(op->api_types[i]);
-    Type type = String2Type(str);
 
-    // TODO: broadcast in hlsc (one wr multi read) 
-    bool axis_enable = false;
+  // print kernel function
+  if (op->name.find("top_function_") != std::string::npos) {
+    int extern_scope = BeginScope();
+    stream << "extern \"C\" {\n";
 
-    // in sdsoc mode    
-    if (sdsoc_mode) {
-      PrintType(type, stream);
-      stream << "* " << vid;
-      // check arg streming statue
-      if (arg_info.find(i) != arg_info.end()) {
-        active_spot = i;
-        if (pragma.str().length() == 0)
-          pragma << "#pragma SDS data access_pattern(";
-        if (active_spot > 0 && active_spot == i)
-          pragma << ", ";
-        pragma << vid << ":SEQUENTIAL";
+    PrintIndent();
+    stream << "void " << op->name << "(";
+    for (size_t i = 0; i < op->args.size(); ++i) {
+      VarExpr v = op->args[i];
+      var_shape_map_[v.get()] = op->api_args[i];
+      std::string vid = AllocVarID(v.get());
+      if (i != 0) stream << ", ";
+      std::string str = PrintExpr(op->api_types[i]);
+      Type type = String2Type(str);
+
+      if (var_shape_map_[v.get()].size() == 1 &&
+          var_shape_map_[v.get()][0].as<IntImm>()->value == 1) { 
+        this->stream << "int " << vid;
+      } else {
+        PrintType(type, stream);
+        stream << "* " << vid;
       }
-      // output comma
-      if (i == op->args.size() - 1 &&
-          pragma.str().length() > 0 ) {
-        pragma << ")\n"; 
+    }
+    stream << ") {\n";
+
+    // memory interface 
+    for (size_t i = 0; i < op->args.size(); i++) {
+      if (op->api_args[i].size() == 1 &&
+          op->api_args[i][0].as<IntImm>()->value == 1) {
+        continue;
+      } else {
+        PrintIndent();
+        stream << "#pragma HLS INTERFACE m_axi port="
+               << GetVarID(op->args[i].get()) << " "
+               << "bundle=gmem\n";
       }
-      continue;
+    }
+    // control interface 
+    for (size_t i = 0; i < op->args.size(); i++) {
+      PrintIndent();
+      stream << "#pragma HLS INTERFACE s_axilite port="
+             << GetVarID(op->args[i].get()) << " "
+             << "bundle=control\n";
+    }
+    PrintIndent();
+    stream << "#pragma HLS INTERFACE s_axilite"
+           << " port=return bundle=control\n";
+
+    StreamChecker sc; sc.Visit(op->body);
+    if (sc.stream_fifo) {
+      stream << "\n";
+      PrintIndent();
+      stream << "#pragma HLS dataflow\n";
     }
 
-    // pass the stream channel reference 
-    if (arg_info.find(i) != arg_info.end()) {
-      if (arg_info[i] == 0) {
+    // function body
+    int func_scope = BeginScope();
+    range_ = CollectIterRange(op->body);
+    PrintStmt(op->body);
+    EndScope(func_scope);
+    PrintIndent();
+    stream << "}\n";
+
+    // end extern c scope
+    stream << "}\n\n";
+    EndScope(extern_scope);
+
+  } else { // regular vhls function  
+
+    stream << "static void " << op->name << "(";
+    for (size_t i = 0; i < op->args.size(); ++i) {
+      VarExpr v = op->args[i];
+      var_shape_map_[v.get()] = op->api_args[i];
+      std::string vid = AllocVarID(v.get());
+      if (i != 0) stream << ", ";
+      std::string str = PrintExpr(op->api_types[i]);
+      Type type = String2Type(str);
+
+      // arg as streaming channel 
+      if (arg_info.find(i) != arg_info.end()) {
         stream << "hls::stream<";
         PrintType(type, stream);
         stream << ">& " << vid;
-        pragma << "#pragma HLS stream depth=1 variable=" 
-               <<  vid << "\n";
-      } else { axis_enable = true; }
-    } // ordinary arg or hls axis interface 
-    if (arg_info.find(i) == arg_info.end() ||
-        axis_enable == true) {
-      PrintType(type, stream);
-      this->stream << " " << vid << "[";
-      int mul = 1;
-      for (size_t j = 0; j < op->api_args[i].size(); j++) {
-        auto dim = op->api_args[i][j].as<IntImm>()->value;
-        mul = mul * dim;
-      }
-      this->stream << mul << "]";
-      if (axis_enable)
-        pragma << "#pragma HLS interface axis port=" 
-               <<  vid << "\n";
-    }
-  }  
-  stream << ") {\n";
-  stream << pragma.str();
-  int func_scope = BeginScope();
-  range_ = CollectIterRange(op->body);
-  PrintStmt(op->body);
-  EndScope(func_scope);
-  stream << "}\n\n";
 
+      } else {
+        PrintType(type, stream);
+        if (op->api_args[i].size() == 0) 
+          this->stream << " " << vid;
+        else stream << "* " << vid;
+      }
+    }
+    stream << ") {\n";
+
+    // function body
+    int func_scope = BeginScope();
+    range_ = CollectIterRange(op->body);
+    PrintStmt(op->body);
+    EndScope(func_scope);
+    PrintIndent();
+    stream << "}\n\n";
+
+  }
+    
   // restore default stream
   module_stream << this->stream.str();
   this->stream.str(""); 

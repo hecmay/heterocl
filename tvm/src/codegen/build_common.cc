@@ -84,10 +84,10 @@ class SimModuleNode final : public ModuleNode {
           system("rm -rf __tmp__; mkdir __tmp__");
 
           if (platform_ == "sdaccel") {
-            GenWrapperCode(args, shmids, arg_types, arg_info_, func_);
+            // GenWrapperCode(args, shmids, arg_types, arg_info_, func_);
             GenHostCode(args, shmids, arg_types, func_, 
                         platform_, host_, arg_info_, added_args_num);
-            GenKernelCode(dev_, platform_, arg_info_);
+            GenKernelCode(dev_, platform_, options_["backend"]);
 
           } else if (platform_ == "rocket") {
             // generate host and run proxy kernel test 
@@ -103,7 +103,7 @@ class SimModuleNode final : public ModuleNode {
                      platform_ == "vivado" || platform_ == "sdsoc") {
             GenHostCode(args, shmids, arg_types, func_, 
                         platform_, host_, arg_info_, added_args_num);
-            GenKernelCode(dev_, platform_, arg_info_); // kernel + header
+            GenKernelCode(dev_, platform_, options_["backend"]); 
 
           } else { // unsupported platform
             LOG(FATAL) << "unrecognized platform " << platform_;  
@@ -114,7 +114,8 @@ class SimModuleNode final : public ModuleNode {
           if (const auto* f = Registry::Get("copy_and_compile")) { 
             CHECK(options_.count("mode")) << "mode mot set";
             auto mode = options_["mode"];
-            (*f)(platform_, mode).operator std::string();
+            auto backend = options_["backend"];
+            (*f)(platform_, mode, backend).operator std::string();
           }
         }
 
@@ -202,6 +203,7 @@ runtime::Module BuildSimModule(Array<LoweredFunc> funcs,
   
   // generate code based on platform info
   std::string platform = values[0].as<StringImm>()->value;
+  std::string backend  = values[2].as<StringImm>()->value;
 
   for (LoweredFunc f : funcs) {
     ca.AddFunction(f);
@@ -227,6 +229,7 @@ runtime::Module BuildSimModule(Array<LoweredFunc> funcs,
     options["added_args_num"] = 
         std::to_string(kv.second.size());
   }
+  options["backend"] = backend;
 
   argInfo arg_info;
   for (size_t i = 0 ; i < arg_vars.size(); i++) {
@@ -259,15 +262,26 @@ TVM_REGISTER_API("codegen.build_sim")
     CHECK(sptr->is_type<ArrayNode>());
     auto* n = static_cast<const ArrayNode*>(sptr.get());
     auto data = n->data[static_cast<size_t>(0)];
+    auto lang = Expr(n->data[static_cast<size_t>(2)]).as<StringImm>()->value;
 
     // create module node for simulation 
     std::string type = Expr(data).as<StringImm>()->value;
     if (type == "rocket") {
       *rv = BuildSimModule<CodeGenRV64PPAC, CodeGenRV64PPAC>
                 (args[0], args[1], args[2]);
+
     } else if (type == "sdaccel") {
-      *rv = BuildSimModule<CodeGenSDAccelHost, CodeGenSDACCEL>
-                (args[0], args[1], args[2]);
+      if (lang == "sdaccel") {
+        *rv = BuildSimModule<CodeGenSDAccelHost, CodeGenSDACCEL>
+                  (args[0], args[1], args[2]);
+      } else if (lang == "vhls") {
+        *rv = BuildSimModule<CodeGenSDAccelHost, CodeGenVivadoHLS>
+                  (args[0], args[1], args[2]);
+      } else {
+        LOG(FATAL) << "sdaccel does not support "
+                   << lang << " backend";
+      }
+
     } else if (type == "vivado_hls" || 
                type == "vivado" || type == "sdsoc") {
       *rv = BuildSimModule<CodeGenVivadoHLS, CodeGenVivadoHLS>

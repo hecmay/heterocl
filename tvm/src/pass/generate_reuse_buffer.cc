@@ -188,6 +188,7 @@ class ReuseBufferInserter final : public IRMutator {
                                         max_map,
                                         shape_map_,
                                         range_);
+        LOG(INFO) << body;
         visitor.Visit(body);
         int reuse = -1;
         // find the min_expr and max_expr for each dimension
@@ -396,6 +397,7 @@ class ReuseBufferInserter final : public IRMutator {
         for_stmt = For::make(new_reuse_loop_var, op->min, new_extent, op->for_type,
                              op->device_api, alloc_body, op->annotate_keys,
                              op->annotate_values);
+        LOG(INFO) << "xsxsx";
         // 7. build the alloc node
         Stmt new_alloc = Allocate::make(
             alloc->buffer_var,
@@ -419,6 +421,12 @@ class ReuseBufferInserter final : public IRMutator {
       } else {
         return IRMutator::Mutate_(op, s);
       }
+    }
+
+    Stmt Mutate_(const KernelDef* op, const Stmt& s) {
+      for (size_t i = 0; i < op->args.size(); i++) 
+        shape_map_[op->args[i].get()] = op->api_args[i];
+      return IRMutator::Mutate_(op, s);
     }
 
     Stmt Mutate_(const Allocate* op, const Stmt& s) {

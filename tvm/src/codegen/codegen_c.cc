@@ -126,14 +126,7 @@ std::string CodeGenC::GetHost() {
 }
 
 std::string CodeGenC::GetDevice() {
-  std::ostringstream device;
-  PreProcess(device); 
-  device << device_stream.str();
-  PostProcess(device);
-
-  if (fpga_scope_) device << stream.str();
-  return decl_stream.str() + module_stream.str() + 
-         device.str();
+  return decl_stream.str() + module_stream.str(); 
 }
 
 std::string CodeGenC::Finish() {

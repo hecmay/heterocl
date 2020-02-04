@@ -6,6 +6,8 @@ import time
 import numpy as np
 import math
 from digitrec_data import read_digitrec_data
+import os
+os.environ["AWS_PLATFORM"] = "xilinx_vcu1525_dynamic_5_1"
 
 N = 7 * 7
 max_bit = int(math.ceil(math.log(N, 2)))
@@ -72,15 +74,18 @@ def top(target=None):
         s.partition(train_images, factor=2)
         s.to(train_images, target.xcel)
         s.to(knn.sort_mat, target.host)
-        # s.to(knn.knn_mat, s[knn_sort], s[knn_update])
+        # s.to(knn.knn_mat, s[knn_sort], s[knn_update], hcl.Stream.FIFO)
 
-    print(hcl.lower(s))
+    # print(hcl.lower(s))
     return hcl.build(s, target=target)
 
 # offload = top("llvm")
+
 tool = hcl.tool.sdaccel
-tool.mode = "hw_emu"
+tool.mode = "sw_emu"
+
 target = hcl.platform.aws_f1(tool)
+target.xcel.lang = "vhls"
 offload = top(target)
 
 def knn_vote(knn_mat):

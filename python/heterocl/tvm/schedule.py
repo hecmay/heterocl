@@ -385,9 +385,11 @@ class _Schedule(NodeBase):
                     index = index + 1
 
                 if len(match) > 2: # use name for matching
-                  names = [str(n).lstrip(src.op.name + ".") for n in src.op.body.args]
+                  names = [str(n).replace(src.op.name + ".", "") 
+                               for n in src.op.body.args]
                   assert str(tensor.op.name) in names, \
-                         "unknwon arg, please specify id"
+                         "unknwon arg, please specify id" + \
+                         str(names) + ":" + str(tensor.op.name)
                   match = [match[0], names.index(str(tensor.op.name))]
 
                 _api_internal._ScheduleStream(self, tensor, dst, src, 

@@ -393,7 +393,7 @@ class StreamMutator : public IRMutator {
   // insert channel index & infer scheduling group 
   Stmt Mutate_(const KernelStmt *op, const Stmt& s) {
 
-    // step 1: save buffer marker
+    // step 1: save buffer marker (discarded)
     if (op->annotate_keys.size() > 0) {
       for (size_t i = 0; i < op->annotate_keys.size(); i++) {
         auto pos = op->annotate_values[i].as<IntImm>()->value;
@@ -401,7 +401,7 @@ class StreamMutator : public IRMutator {
       }
     }
 
-    // step 2: do basic shecduling 
+    // step 2: do init shecduling 
     auto vector = kernel_arg_map[op->name];
     CHECK(vector.size() % 2 == 0) << "wrong size";
     Array<Expr> keys, values;
@@ -637,8 +637,13 @@ class InfoUpdater final : public IRMutator {
     // 2. mark the buffer allocator with pragma attr
     for (size_t i = 0; i < marked_buffer_.size(); i++) {
       if (op->buffer_var.get() == marked_buffer_[i].get()) {
-        return AttrStmt::make(op->buffer_var, "pragma",
-                              StringImm::make("stream"), stmt);
+        auto attrs = op->attrs;
+        attrs.push_back(AttrStmt::make(VarExpr(op->buffer_var.node_), 
+                        "pragma", StringImm::make("STREAM"), Evaluate::make(1)));
+        return Allocate::make(
+            op->buffer_var, op->type,
+            op->extents, op->condition, op->body, attrs,
+            op->new_expr, op->free_function);
       }
     }
     return stmt;
@@ -935,6 +940,7 @@ class KernelAnnotator final : public IRMutator {
     std::unordered_map<std::string, std::unordered_set<int>> map) :
     arg_scope_map_(map) {} 
 
+  // mark the kernel def (arg[pos] is in global scope)
   Stmt Mutate_(const KernelDef *op, const Stmt& s) final {
     if (arg_scope_map_.count(op->name)) {
       auto set = arg_scope_map_[op->name];

@@ -6,8 +6,8 @@ HOST_SRC_CPP = host.cpp utils.cpp
 HOST_SRC_H = utils.h
 
 # Set host code include paths
-HOST_INC = -I/opt/Xilinx/Vivado/2019.1.op2552052/include/
-HOST_LIB = -L/opt/Xilinx/Vivado/2019.1.op2552052/lib/
+HOST_INC = -I$(XILINX_SDX)/Vivado/include -I/opt/xilinx/Xilinx_SDx_2018.2_0614_1954/Vivado/2018.2/include
+HOST_LIB = -L$(XILINX_SDX)/Vivado/lib -L/opt/xilinx/Xilinx_SDx_2018.2_0614_1954/Vivado/2018.2/lib/
 
 # Set kernel file (xocc)
 OCL_KERNEL_SRC = kernel.cl

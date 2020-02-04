@@ -46,8 +46,13 @@ else
 endif
 
 # OpenCL runtime Libraries
-OPENCL_INC = $(XILINX_XRT)/include/
-OPENCL_LIB = $(XILINX_XRT)/lib/
+ifndef XILINX_XRT
+  OPENCL_INC = /opt/xilinx/Xilinx_SDx_2018.2_0614_1954/SDx/2018.2/runtime/include/1_2/
+  OPENCL_LIB = /opt/xilinx/Xilinx_SDx_2018.2_0614_1954/SDx/2018.2/runtime/lib/x86_64
+else
+  OPENCL_INC = $(XILINX_XRT)/include/
+  OPENCL_LIB = $(XILINX_XRT)/lib/
+endif
 
 # opencl harness files
 OCL_HARNESS_DIR     = .
@@ -155,7 +160,7 @@ $(OCL_HOST_EXE): $(HOST_SRC_CPP) $(HOST_SRC_H) $(OCL_HARNESS_SRC_CPP) $(OCL_HARN
 
 # ocl secondary rule: xclbin 
 $(XCLBIN): $(XO)
-	$(XOCC) -l $(XCLBIN_FLAGS) -o $@ $(XO)
+	$(XOCC) -l --xp param:compiler.useHlsGpp=1 $(XCLBIN_FLAGS) -o $@ $(XO)
 
 # ocl secondary rule: xo
 $(XO): $(OCL_KERNEL_SRC) $(OCL_KERNEL_H)

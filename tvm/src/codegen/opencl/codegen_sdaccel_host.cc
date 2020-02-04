@@ -192,36 +192,95 @@ void CodeGenSDAccelHost::VisitStmt_(const KernelStmt* op) {
   std::string name = op->name;
   // extract annotation information 
   // initialize buffers and opencl kernel 
-  // if (name.find("top_function_") != std::string::npos) {
-  //   PrintIndent();
-  //   stream << "CLKernel " << name 
-  //          << "(world.getContext(), world.getProgram(), \""
-  //          <<  name << "\", world.getDevice());\n"; 
-  //   for (size_t k = 0; k < op->args.size(); k++) {
+  int mem_count = 0;
+  if (name.find("top_function_") != std::string::npos) {
+    // create kernels
+    stream << "\n";
+    PrintIndent();
+    stream << "CLKernel " << name 
+           << "(world.getContext(), world.getProgram(), \""
+           <<  name << "\", world.getDevice());\n"; 
 
-  //     auto v = op->args[i].as<Variable>();
-  //     CHECK(v) << "invalid input var";
-  //     auto shape = var_shape_map_[v];
-  //     LOG(INFO) << shape;
+    for (size_t k = 0; k < op->args.size(); k++) {
 
-  //     PrintIndent();
-  //     stream << "CLMemObj mem" << 
-  //     PrintExpr(op->args[i], stream); 
-  //     stream << "(context, CL_MEM_USE_HOST_PTR | "
-  //            << "CL_MEM_READ_WRITE, size_of(";
+      auto v = op->args[k].as<Variable>();
+      CHECK(v) << "invalid input var";
+      auto shape = var_shape_map_[v];
+      if (shape.size() == 0) continue;
 
-  //     std::string str = PrintExpr(op->api_types[i]);
-  //     Type type = String2Type(str);
-  //   }
-  // }
+      PrintIndent();
+      stream << "CLMemObj source_" << mem_count << "((void*)"; 
+      PrintExpr(op->args[k], stream); 
+      stream << ", sizeof(";
+      PrintType(handle_data_type_[v], stream);
+      stream << "), ";
+      for (size_t i = 0; i < shape.size(); i++) {
+        if (i != 0) stream << " *";
+        stream << shape[i];
+      }
+      stream  << ", CL_MEM_READ_WRITE);\n";
+      mem_count += 1;
 
-  PrintIndent();
-  stream << op->name << "(";
-  for (size_t i = 0; i < op->args.size(); i++) {
-    PrintExpr(op->args[i], stream);
-    if (i < op->args.size() -1) stream << ", ";
+    }
+
+    // set up memory and work size
+    for (int i = 0; i < mem_count; i++) {
+      PrintIndent();
+      stream << "world.addMemObj(source_" << i << ");\n";
+    }
+    stream << R"(
+  int global_size[3] = {1, 1, 1};
+  int local_size[3]  = {1, 1, 1};
+  )";
+    stream << name << ".set_global(global_size);\n"; 
+    PrintIndent();
+    stream << name << ".set_local(local_size);\n"; 
+    PrintIndent();
+    stream << "world.addKernel(" << name << ");\n\n";
+  
+    // set arguments for kernel
+    mem_count = 0;
+    for (size_t k = 0; k < op->args.size(); k++) {
+      auto v = op->args[k].as<Variable>();
+      CHECK(v) << "invalid input var";
+      auto shape = var_shape_map_[v];
+      if (shape.size() == 0) {
+        PrintIndent();
+        stream << "world.setIntKernelArg(0, " << k << ", ";
+        PrintExpr(op->args[k], stream); 
+        stream << ");\n";
+        continue;
+      };
+
+      stream << "";
+      PrintIndent();
+      stream << "world.setMemKernelArg(0, " << k << ", "
+             << mem_count << ");\n";
+      mem_count += 1;
+    }
+
+    // launch kernel function 
+    stream << "\n";
+    PrintIndent();
+    stream << "world.runKernels();\n";
+  
+    // collecting data back from global ddr 
+    for (int k = 0; k < mem_count; k++) {
+      PrintIndent();
+      stream << "world.readMemObj(" << k << ");\n";
+    }
+
+  } else { // regular sub-function 
+    PrintIndent();
+    stream << op->name << "(";
+    for (size_t i = 0; i < op->args.size(); i++) {
+      PrintExpr(op->args[i], stream);
+      if (i < op->args.size() -1) stream << ", ";
+    }
+    stream << ");\n";
   }
-  stream << ");\n";
+
+
 }
 
 }  // namespace codegen

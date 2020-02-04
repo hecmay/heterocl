@@ -3,8 +3,14 @@
   * consider "move data from local to kernel"? 
   * correct location to insert "attr partition" in SDAccel 
   * move data to different storage on xcel?
+
+# 2020-02-04
   * generate the host code & Makefiel for simulation
 
+# 2020-02-03
+  * 1. One more thing to fix. inter-kernel streaming integrated with memory reuse.
+
+# 2020-02-02
     * 1. memory object allocation + copy data + enqueue tasks before top_function and data fetching at the end of the function call (Important: To handle pipes between kernels, different kernels but sub functions are required)
 
     * 2. do we still want to reuse opencl utility functions from rosetta? it's not portable and fine-granular enough. And also it requries extra efforst to pass the IR information (e.g. size, data type) to the wrapper code generater. The solution is to push OpenCL host code to a separate code generator inherited from CodeGenC. and create initilization code for Kernel Stmt IR.

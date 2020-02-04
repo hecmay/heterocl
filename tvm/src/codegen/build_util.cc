@@ -329,10 +329,11 @@ void PrintCopyBack(TVMArray* arr,
 
 // generate kernel code into files 
 void GenKernelCode(std::string& test_file, 
-                   std::string platform, argInfo& arg_info) {
+                   std::string platform, std::string backend) {
   std::ofstream stream;
   std::string kernel_ext = "cpp";
-  if (platform == "sdaccel") kernel_ext = "cl";
+  if (platform == "sdaccel" && backend == "sdaccel") 
+    kernel_ext = "cl";
   stream.open("__tmp__/kernel." + kernel_ext);
 
   if (platform == "vivado" || platform == "vivado_hls" ||
@@ -357,24 +358,24 @@ void GenKernelCode(std::string& test_file,
     size_t begin = test_file.rfind('\n', dut);
     size_t end = test_file.find(')', dut) + 1;
 
-    if (platform == "sdsoc") { 
-      // insert kernel with sds pragmas
-      bool stream_pragma = false;
-      size_t last_active_spot = 0;
-      for (size_t i = 0; i < arg_info.size(); i++) {
-        auto& info = arg_info[i];
-        if (info.streamed) { // TODO: copy, mover
-          if (!stream_pragma) { 
-            stream_pragma = true;
-            header << "#pragma SDS data access_pattern(";
-          }
-          if (i != 0 && last_active_spot == i - 1) header << ", ";
-          last_active_spot = i;
-          header << info.name << ":SEQUENTIAL";
-        }
-      }
-      if (stream_pragma) header << ")";
-    }
+    // if (platform == "sdsoc") { 
+    //   // insert kernel with sds pragmas
+    //   bool stream_pragma = false;
+    //   size_t last_active_spot = 0;
+    //   for (size_t i = 0; i < arg_info.size(); i++) {
+    //     auto& info = arg_info[i];
+    //     if (info.streamed) { // TODO: copy, mover
+    //       if (!stream_pragma) { 
+    //         stream_pragma = true;
+    //         header << "#pragma SDS data access_pattern(";
+    //       }
+    //       if (i != 0 && last_active_spot == i - 1) header << ", ";
+    //       last_active_spot = i;
+    //       header << info.name << ":SEQUENTIAL";
+    //     }
+    //   }
+    //   if (stream_pragma) header << ")";
+    // }
     header << test_file.substr(begin, end - begin) 
            << ";\n" << "\n#endif";
     header.close();
@@ -694,7 +695,7 @@ void KernelInit(std::ofstream& stream,
 }
 
 // separate host code into partitions 
-std::vector<std::string> SplitHostCode(std::string host_code,
+std::string SplitHostCode(std::string host_code,
     std::vector<std::string>& names) {
   // extract the top arg name 
   size_t pos = host_code.find("default_function");
@@ -708,21 +709,23 @@ std::vector<std::string> SplitHostCode(std::string host_code,
     ++iter;
   }
   // separate the host code with delimiter  
-  std::string delimiter = "top_function_";
-  size_t func_pos = 0;
-  std::vector<std::string> segments;
+  // std::string delimiter = "top_function_";
+  // size_t func_pos = 0;
+  // std::vector<std::string> segments;
   host_code = host_code.substr(host_code.find('\n', pos) + 1);
-  while ((func_pos = host_code.find(delimiter)) != std::string::npos) {
-    auto seg = host_code.substr(0, func_pos);
-    if (seg.find_first_not_of(' ') != std::string::npos) {
-      seg = seg.substr(seg.find_first_not_of(' '));
-      segments.push_back(seg);
-    } else { segments.push_back("\n"); }
-    host_code.erase(0, host_code.find(';', func_pos));
-  }
-  host_code = host_code.substr(host_code.find("\n"), host_code.rfind("}") - 1);
-  segments.push_back(host_code);
-  return segments;
+  // while ((func_pos = host_code.find(delimiter)) != std::string::npos) {
+  //   auto seg = host_code.substr(0, func_pos);
+  //   if (seg.find_first_not_of(' ') != std::string::npos) {
+  //     seg = seg.substr(seg.find_first_not_of(' '));
+  //     segments.push_back(seg);
+  //   } else { segments.push_back("\n"); }
+  //   host_code.erase(0, host_code.find(';', func_pos));
+  // }
+  auto begin = host_code.find("\n");
+  auto length = host_code.rfind("}") - begin;
+  host_code = host_code.substr(begin, length);
+  // segments.push_back(host_code);
+  return host_code;
 }
 
 // generate host code according to platform type
@@ -794,79 +797,94 @@ void GenHostCode(TVMArgs& args,
     stream << "\n";
   }
 
-  // generate host side (before kernel)
-  PrintIndent(stream, indent);
-  stream << "// compute before kernel function\n";
-
-  if (code.size() > 1) {
-    PrintIndent(stream, indent);
-    if (platform == "sdaccel") {
-      // create variable wrapper
-      stream << code[0] << "\n";
-      KernelInit(stream, platform, args,
-                 arg_types, arg_names, added_args_num);
-
-    } else if (platform == "vivado_hls" || platform == "vivado" ||
-               platform == "sdsoc") {
-      // init hls stream channels 
-      for (size_t k = 0; k < arg_info.size(); k++) {
-        auto& info = arg_info[k]; 
-        PrintIndent(stream, indent);
-        // use hls::stream for pure vhls simulation
-        if (platform != "sdsoc" && info.streamed) {
-          stream << "hls::stream<" 
-                 << Type2Str(Type2TVMType(info.type))
-                 << "> " << "fd_" << info.name << ";\n";
-        } else { // use sdsoc_alloc
-          std::string size = "sizeof(" + 
-              Type2Str(Type2TVMType(info.type)) + ")*";
-          for (auto v : info.shape)
-            size += std::to_string(v) + "*";
-          size = size.substr(0, size.size()-1);
-          stream << Type2Str(Type2TVMType(info.type)) << "* " << "fd_" 
-                 << info.name << " = (" << Type2Str(Type2TVMType(info.type)) << " *)" 
-                 << "sds_alloc(" << size << ")" << ";\n";
-        }
-      }
-      PrintIndent(stream, indent);
-      stream << code[0] << "\n";
-
-      // create kernel call from host 
-      PrintIndent(stream, indent);
-      stream << "top(";
-      for (size_t i = 0; i < arg_info.size(); i++) {
-        auto& info = arg_info[i];
-        auto shape = info.shape;
-        if (i != 0) stream << ", ";
-        if (platform != "sdsoc" && 
-            shape.size() == 1 && shape[0] == 1) void(0);
-        else stream << "fd_"; // pass in continuous mem ptr 
-        stream << info.name;
-      }
-      stream << ");\n";
-    }
-
-    // generate host (post-kernel)
-    PrintIndent(stream, indent);
-    stream << "// compute after kernel function\n";
-
-    // alloc buffers for host undefined
-    for (int k = 0; k < added_args_num; k++) {
-      auto size = arg_info.size() - 1;
-      auto& info = arg_info[size-k];
-      PrintIndent(stream, indent);
-      stream << Type2Str(Type2TVMType(info.type)) << " "
-             << info.name << "[";
-      int mul = 1;
-      for (size_t j = 0; j < info.shape.size(); j++) 
-        mul *= info.shape[j];
-      stream << mul << "];\n";
-    }
-    stream << code[1];
-
-  } else { // without 
-    stream << host_code;
+  // platform initilization 
+  if (platform == "sdaccel") {
+    stream << R"(
+  // parse command line arguments for opencl version 
+  std::string kernelFile("");
+  parse_sdaccel_command_line_args(argc, argv, kernelFile);
+ 
+  // create OpenCL world
+  CLWorld world = CLWorld(TARGET_DEVICE, CL_DEVICE_TYPE_ACCELERATOR);
+  world.addProgram(kernelFile);
+)";
   }
+  // generate host side (before kernel)
+  stream << "\n";
+  PrintIndent(stream, indent);
+  stream << "// compute and kernel call from host";
+  stream << code << "\n";
+
+
+  // if (code.size() > 1) {
+  //   PrintIndent(stream, indent);
+  //   if (platform == "sdaccel") {
+  //     // create variable wrapper
+  //     stream << code[0] << "\n";
+  //     KernelInit(stream, platform, args,
+  //                arg_types, arg_names, added_args_num);
+
+  //   } else if (platform == "vivado_hls" || platform == "vivado" ||
+  //              platform == "sdsoc") {
+  //     // init hls stream channels 
+  //     for (size_t k = 0; k < arg_info.size(); k++) {
+  //       auto& info = arg_info[k]; 
+  //       PrintIndent(stream, indent);
+  //       // use hls::stream for pure vhls simulation
+  //       if (platform != "sdsoc" && info.streamed) {
+  //         stream << "hls::stream<" 
+  //                << Type2Str(Type2TVMType(info.type))
+  //                << "> " << "fd_" << info.name << ";\n";
+  //       } else { // use sdsoc_alloc
+  //         std::string size = "sizeof(" + 
+  //             Type2Str(Type2TVMType(info.type)) + ")*";
+  //         for (auto v : info.shape)
+  //           size += std::to_string(v) + "*";
+  //         size = size.substr(0, size.size()-1);
+  //         stream << Type2Str(Type2TVMType(info.type)) << "* " << "fd_" 
+  //                << info.name << " = (" << Type2Str(Type2TVMType(info.type)) << " *)" 
+  //                << "sds_alloc(" << size << ")" << ";\n";
+  //       }
+  //     }
+  //     PrintIndent(stream, indent);
+  //     stream << code[0] << "\n";
+
+  //     // create kernel call from host 
+  //     PrintIndent(stream, indent);
+  //     stream << "top(";
+  //     for (size_t i = 0; i < arg_info.size(); i++) {
+  //       auto& info = arg_info[i];
+  //       auto shape = info.shape;
+  //       if (i != 0) stream << ", ";
+  //       if (platform != "sdsoc" && 
+  //           shape.size() == 1 && shape[0] == 1) void(0);
+  //       else stream << "fd_"; // pass in continuous mem ptr 
+  //       stream << info.name;
+  //     }
+  //     stream << ");\n";
+  //   }
+
+  //   // generate host (post-kernel)
+  //   PrintIndent(stream, indent);
+  //   stream << "// compute after kernel function\n";
+
+  //   // alloc buffers for host undefined
+  //   for (int k = 0; k < added_args_num; k++) {
+  //     auto size = arg_info.size() - 1;
+  //     auto& info = arg_info[size-k];
+  //     PrintIndent(stream, indent);
+  //     stream << Type2Str(Type2TVMType(info.type)) << " "
+  //            << info.name << "[";
+  //     int mul = 1;
+  //     for (size_t j = 0; j < info.shape.size(); j++) 
+  //       mul *= info.shape[j];
+  //     stream << mul << "];\n";
+  //   }
+  //   stream << code[1];
+
+  // } else { // without 
+  //   stream << host_code;
+  // }
 
   // copy to shared mem
   for (int i = 0; i < args.size(); i++) {

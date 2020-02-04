@@ -125,7 +125,6 @@ def compute_body(name,
             buf = decl_buffer(shape, stage._dtype, name)
             tensor = Tensor(shape, stage._dtype, name, buf)
 
-        # print(tensor.shape, name)
         stage.stmt_stack.append([])
         ret = fcompute(*var_list) # return from lambda
         indices = lambda_ivs # use itervars 
@@ -428,6 +427,19 @@ def mutate(domain, fcompute, name=None):
     args, nargs = process_fcompute(fcompute, domain)
     indices = [_IterVar((0, domain[n]), args[n], 0) for n in range(0, nargs)]
     var_list = [i.var for i in indices]
+
+    # attach to superstage
+    if Stage.get_len() > 0 and \
+       Stage._current[-1]._module and \
+       domain != (1,): # cannot handle scalar
+        stage = Stage._current[-1]
+
+        stage.stmt_stack.append([])
+        fcompute(*var_list)
+        body = stage.pop_stmt()
+        stage.emit(make_for(indices, body, 0))
+        stage.axis_list = indices + stage.axis_list
+        return 
 
     # perform the computation
     with Stage(name) as stage:

@@ -7,6 +7,8 @@ from .devices import *
 from .nparray import *
 from .debug import hcl_excepthook
 from .tvm.intrin import *
+
 from .tvm.stmt import Partition
+from .tvm.expr import StreamExpr as Stream
 
 sys.excepthook = hcl_excepthook

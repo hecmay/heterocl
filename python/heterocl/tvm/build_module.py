@@ -25,6 +25,13 @@ from . import target as _target
 from . import make
 from ..devices import platform
 
+def replace_text(f_name, prev, new):
+    with open(f_name, 'r') as fp:
+        data = fp.read()
+    data = data.replace(prev, new)
+    with open(f_name, 'w') as fp:
+        fp.write(data)
+
 def run_process(cmd, pattern=None, env=None):
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
     out, err = p.communicate()
@@ -81,7 +88,7 @@ def tvm_callback_exec_evaluate(platform, mode):
     return str(qor) 
 
 @register_func
-def copy_and_compile(platform, mode):
+def copy_and_compile(platform, mode, backend):
     """  create necessary files and compile into binary """
     path = api.__file__
     path = os.path.join(path[0:path.find("python")], "tvm/src/template/")
@@ -126,12 +133,12 @@ def copy_and_compile(platform, mode):
     if platform == "sdaccel":
         os.system("cp " + path + "sdaccel/* __tmp__/")
         os.system("cp " + path + "harness.mk __tmp__/")
-        file_name = '__tmp__/Makefile'
-        with open(file_name, 'r') as fp:
-            data = fp.read()
-        data = data.replace('App', 'top_function_0')
-        with open(file_name, 'w') as fp:
-            fp.write(data)
+        replace_text("__tmp__/Makefile", "App", "top_function_0")
+        replace_text("__tmp__/utils.h", 
+                     "xilinx_aws-vu9p-f1-04261818_dynamic_5_0", 
+                     "xilinx_vcu1525_dynamic_5_1")
+        if backend == "vhls":
+          replace_text("__tmp__/Makefile", "kernel.cl", "kernel.cpp")
 
         # compile the program 
         assert os.system("which xocc >> /dev/null") == 0, \
@@ -601,6 +608,8 @@ def build_fpga_kernel(sch, args, target, name="default_function"):
    
         # return simulation built function
         mode = str(target.tool.mode)
+        assert mode in ["debug", "sw_emu", "hw_emu", "hw"], \
+               "not support mode " + mode
         if mode == "debug": # return source code only
             host_code, xcel_code = "", ""
             if host: # src mode generate host code 
@@ -618,10 +627,13 @@ def build_fpga_kernel(sch, args, target, name="default_function"):
             builder = getattr(codegen, "build_{0}".format("sim"))
             keys = [k for k in target.tool.options.keys()]
             vals = [v for v in target.tool.options.values()]
+            # platform & backend lang
             keys.insert(0, "name")
             vals.insert(0, target.tool.name)
             keys.insert(1, "mode")
             vals.insert(1, mode)
+            keys.insert(2, "backend")
+            vals.insert(2, xcel)
             return builder(fdevice, keys, vals)
 
     except AttributeError:

@@ -57,7 +57,7 @@ void PrintCopyBack(TVMArray* arr,
 
 void GenKernelCode(std::string& test_file, 
                    std::string platform,
-                   argInfo& arg_info);
+                   std::string backend);
 
 void GenWrapperCode(TVMArgs& args,
                  const std::vector<int>& shmids,

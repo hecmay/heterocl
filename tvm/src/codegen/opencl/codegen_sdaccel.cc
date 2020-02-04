@@ -290,24 +290,27 @@ void CodeGenSDACCEL::VisitStmt_(const StreamStmt* op) {
   std::string vid = GetVarID(op->buffer_var.get());
   PrintIndent();
   switch (op->stream_type) {
-    case StreamType::Channel:
-      LOG(WARNING) << "not support channel in sdaccel; "
-                   << "use pipe instead";
-      break;
     case StreamType::FIFO:
-      LOG(WARNING) << "not support fifo in sdaccel; "
-                   << "use pipe instead";
+      // kernel FIFO as regular store
+      stream << vid << "[0] = "; 
+      PrintExpr(op->value, stream);
+      stream << ";\n";
       break;
+
     // declare outside def 
     case StreamType::Pipe:
+      stream << "int temp_out = "; 
+      PrintExpr(op->value, stream);
+      stream << ";\n";
+      PrintIndent();
+      stream << "write_pipe_block(" << vid
+             << ", " << "&temp_out);\n";
+      break;
+
+    case StreamType::Channel:
+      LOG(FATAL) << "not support channel in sdaccel";
       break;
   }
-  stream << "int temp_out = "; 
-  PrintExpr(op->value, stream);
-  stream << ";\n";
-  PrintIndent();
-  stream << "write_pipe_block(" << vid
-         << ", " << "&temp_out);\n";
 }
 
 void CodeGenSDACCEL::VisitExpr_(const StreamExpr* op, std::ostream& os) {

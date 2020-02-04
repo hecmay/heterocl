@@ -246,3 +246,33 @@ def test_conv2D_lb_wb_schedule():
     np_B = hcl_B.asnumpy()
 
     assert np.array_equal(np_B, np_C)
+
+def test_reuse_select():
+    hcl.init()
+    A = hcl.placeholder((10, 10, 2))
+    B = hcl.compute((10, 8, 2), lambda y, x, c: 
+            hcl.select(c==0, A[y, x, c]*1 + A[y, x+1, c]*1 + A[y, x+2, c]*1,
+                             A[y, x, c]*3 + A[y, x+1, c]*5 + A[y, x+2, c]*6))
+    s = hcl.create_schedule([A, B])
+    RB = s.reuse_at(A, s[B], B.axis[1])
+    f = hcl.build(s)
+
+    np_A = np.random.randint(0, 10, size=(10, 10, 2))
+    np_B = np.zeros((10, 8, 2), dtype="int")
+    np_C = np.zeros((10, 8, 2), dtype="int")
+
+    for y in range(0, 10):
+        for x in range(0, 8):
+            np_C[y][x][0] = np_A[y][x][0]*1 + np_A[y][x+1][0]*1 + np_A[y][x+2][0]*1
+            np_C[y][x][1] = np_A[y][x][1]*3 + np_A[y][x+1][1]*5 + np_A[y][x+2][1]*6
+
+    hcl_A = hcl.asarray(np_A)
+    hcl_B = hcl.asarray(np_B)
+    print(hcl.lower(s))
+
+    f(hcl_A, hcl_B)
+
+    np_B = hcl_B.asnumpy()
+
+    assert np.array_equal(np_B, np_C)
+
