@@ -47,6 +47,36 @@ def test_argmax():
     argmax_b = np.argmax(a_np, axis=1)
     assert np.array_equal(ret_b[:,0], argmax_b)
 
+# constant array in module
+def test_copy_module():
+
+    def kernel(A):
+
+        @hcl.def_([(10,3)])
+        def add(A):
+            a = hcl.copy([1, 2, 3], "a", hcl.Int())
+            hcl.update(A, lambda y, x: A[y,x] * a[x])
+
+        add(A)
+    
+    A = hcl.placeholder((10,3))    
+    s = hcl.create_schedule([A], kernel)
+    f = hcl.build(s)
+    
+    np_A = np.random.randint(10, size=(10,3))
+    hcl_A = hcl.asarray(np_A)
+    f(hcl_A)
+
+    ret = hcl_A.asnumpy()
+    np_B = np.zeros((10, 3), dtype="int")
+
+    w = [1, 2, 3]
+    for y in range(0, 10):
+        for x in range(0, 3):
+            np_B[y][x] = np_A[y][x] * w[x] 
+
+    assert np.array_equal(ret, np_B)
+
 # reuse hlib sort 
 def test_sort_module():
     def kernel(A, B):
@@ -132,4 +162,3 @@ def test_argmax_function():
     ret_b = b_hcl.asnumpy()
     argmax_b = np.argmax(a_np, axis=1)
     assert np.array_equal(ret_b[:,0], argmax_b)
-

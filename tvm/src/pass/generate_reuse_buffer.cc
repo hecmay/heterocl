@@ -16,11 +16,28 @@ Expr calculate_index(std::vector<Expr> indices, const Array<Expr> shape) {
   Expr ret = indices[0];
   Expr mul = 1;
   for (size_t i = 1; i < indices.size(); i++) {
-    mul = Simplify(mul * shape[i]);
+    mul = Simplify(mul * shape[indices.size()-i]);
     ret = Simplify(ret + indices[i] * mul);
   }
   return ret;
 }
+
+// collect max bound in if-then-else condition
+class ConditionBoundCollector final : public IRMutator {
+  public:
+    ConditionBoundCollector(
+        std::map<const Variable*, Expr>& range)
+      : range_(range) {}
+
+    Expr Mutate_(const LT* op, const Expr& e) {
+      if (auto v = op->a.as<Variable>()) 
+        if (range_.count(v) > 0) range_[v] = Simplify(op->b-1);
+      return e;
+    }
+
+  private:
+    std::map<const Variable*, Expr>& range_;
+};
 
 class ModulusRemover final : public IRMutator {
   public:
@@ -84,6 +101,15 @@ class LoadExpressionCollector final : public IRVisitor {
       : target_(target), expr_list_(expr_list),
         min_map_(min_map), max_map_(max_map), 
         shape_map_(shape_map), range_(range) {};
+
+    void Visit_(const IfThenElse* op) {
+      // record the max bound in condition 
+      ConditionBoundCollector bc(range_);
+      bc.Mutate(op->condition);
+      CHECK(!op->else_case.defined()) 
+         << "not support else bound change in else case";
+      this->Visit(op->then_case);
+    }
 
     void Visit_(const Load* op) {
       this->Visit(op->index);
@@ -188,7 +214,6 @@ class ReuseBufferInserter final : public IRMutator {
                                         max_map,
                                         shape_map_,
                                         range_);
-        LOG(INFO) << body;
         visitor.Visit(body);
         int reuse = -1;
         // find the min_expr and max_expr for each dimension
@@ -242,6 +267,7 @@ class ReuseBufferInserter final : public IRMutator {
             // check if there is overlap between reuse axis
             // e.g. next_min = y+1, max_incr = y+2
             Expr compare = Simplify(max_expr > next_min);
+            // LOG(INFO) << max_expr << ":" << next_min;
             if (is_zero(compare))
               LOG(FATAL) << "No reuse is found in axis " << op->loop_var; 
             reuse = dim;
@@ -397,7 +423,6 @@ class ReuseBufferInserter final : public IRMutator {
         for_stmt = For::make(new_reuse_loop_var, op->min, new_extent, op->for_type,
                              op->device_api, alloc_body, op->annotate_keys,
                              op->annotate_values);
-        LOG(INFO) << "xsxsx";
         // 7. build the alloc node
         Stmt new_alloc = Allocate::make(
             alloc->buffer_var,

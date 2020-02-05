@@ -4,8 +4,15 @@
   * correct location to insert "attr partition" in SDAccel 
   * move data to different storage on xcel?
 
+# 2020-02-05
+  * array partitioning heterocl module  
+  * create multi-kernel program in host code generator
+    * 1. How to determine whether a kernel stmt is categorized into kernel or sub function: if there is a pipe or channel between 
+
 # 2020-02-04
   * generate the host code & Makefiel for simulation
+  * added constant local buffer in heterocl module 
+  * fixed resue buffer dimension recovery issue
 
 # 2020-02-03
   * 1. One more thing to fix. inter-kernel streaming integrated with memory reuse.

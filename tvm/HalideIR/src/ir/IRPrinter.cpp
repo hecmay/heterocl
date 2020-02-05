@@ -339,9 +339,15 @@ TVM_STATIC_IR_FUNCTOR(IRPrinter, vtable)
 TVM_STATIC_IR_FUNCTOR(IRPrinter, vtable)
 .set_dispatch<StreamStmt>([](const StreamStmt *op, IRPrinter* p) {
     p->do_indent();
-    p->stream << op->buffer_var << ".write(";
-    p->print(op->value);
-    p->stream << ")\n";
+    if (op->stream_type == StreamType::FIFO) {
+      p->stream << "// pragma fifo variable="
+                << op->buffer_var << " depth=";
+      p->stream << op->depth << "\n";
+    } else {
+      p->stream << op->buffer_var << ".write(";
+      p->print(op->value);
+      p->stream << ")\n";
+   }
 });
 
 TVM_STATIC_IR_FUNCTOR(IRPrinter, vtable)

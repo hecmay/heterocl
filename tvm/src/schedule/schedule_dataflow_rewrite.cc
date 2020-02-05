@@ -1058,7 +1058,6 @@ Tensor Schedule::reuse_at(const Tensor& target,
                               VarExpr(reuse_output_buf.node_), 
                               op->name, axis);
   new_body = mutator.Mutate(op->body);
-  LOG(INFO) << new_body;
   // create reuse tensor
   Tensor reuse = ExternOpNode::make(reuse_name,
                                     "",

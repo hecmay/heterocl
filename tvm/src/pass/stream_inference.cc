@@ -638,8 +638,9 @@ class InfoUpdater final : public IRMutator {
     for (size_t i = 0; i < marked_buffer_.size(); i++) {
       if (op->buffer_var.get() == marked_buffer_[i].get()) {
         auto attrs = op->attrs;
-        attrs.push_back(AttrStmt::make(VarExpr(op->buffer_var.node_), 
-                        "pragma", StringImm::make("STREAM"), Evaluate::make(1)));
+        attrs.push_back(StreamStmt::make(VarExpr(op->buffer_var.node_), 
+                            IntImm::make(Int(32), 0), StreamType::FIFO, 1,
+                            Array<Expr>(), Array<Expr>()));
         return Allocate::make(
             op->buffer_var, op->type,
             op->extents, op->condition, op->body, attrs,
@@ -933,7 +934,8 @@ class SplitDevice final : public IRMutator {
   std::unordered_map<const Variable*, Type> api_dtype_;
 };
 
-// add annotation to kernel def node 
+// 1. add annotation to kernel def node 
+// 2. move the allocate reuse buffer into kernel def
 class KernelAnnotator final : public IRMutator {
  public:
   KernelAnnotator(
@@ -957,6 +959,21 @@ class KernelAnnotator final : public IRMutator {
                  op->body, op->ret_void, op->ret_type, op->name, channels);
     }
     return s;
+  }
+
+  // move resue allocate into kernel module
+  Stmt Mutate_(const Allocate *op, const Stmt& s) final {
+    Stmt stmt = IRMutator::Mutate_(op, s);
+    op = stmt.as<Allocate>();
+    if (auto k = op->body.as<KernelDef>()) {
+      Stmt new_body = k->body;
+      new_body = Allocate::make(op->buffer_var, op->type, op->extents,
+                                op->condition, new_body, op->attrs,
+                                op->new_expr, op->free_function);
+      return KernelDef::make(k->args, k->api_args, k->api_types, 
+                 new_body, k->ret_void, k->ret_type, k->name, k->channels);
+    }
+    return stmt;
   }
 
  private:

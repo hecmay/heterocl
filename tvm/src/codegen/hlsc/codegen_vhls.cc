@@ -127,11 +127,9 @@ void CodeGenVivadoHLS::VisitStmt_(const Allocate* op) {
       if (constant_size > 1) // Transfer length one array to scalar
         stream << '[' << constant_size << "]";
       stream << ";\n";
-      // pragma STREAM
-      if (op->attrs.size() > 0) {
-        this->PrintIndent();
-        stream << "#pragma HLS STREAM " 
-               << "variable=" << vid << " depth=1\n";
+      // pragmas associated with allocate 
+      for (auto& k : op->attrs) {
+        if (!k.as<StreamStmt>()) this->PrintStmt(k);
       }
 
     } else if (vid.find("c_buf_") != std::string::npos) { // register pipes
@@ -209,6 +207,7 @@ void CodeGenVivadoHLS::VisitStmt_(const For* op) {
 }
 
 void CodeGenVivadoHLS::VisitStmt_(const Partition* op) {
+  PrintIndent();
   stream << "#pragma HLS array_partition variable=";
   std::string vid = GetVarID(op->buffer_var.get());
   stream << vid << " ";
@@ -252,25 +251,27 @@ void CodeGenVivadoHLS::VisitExpr_(const StreamExpr* op, std::ostream& os) {
 }
 
 void CodeGenVivadoHLS::VisitStmt_(const StreamStmt* op) {
-  CodeGenC::VisitStmt_(op);
   std::string vid = GetVarID(op->buffer_var.get());
   switch (op->stream_type) {
     case StreamType::Channel:
       break;
     case StreamType::FIFO:
+      PrintIndent();
+      stream << "#pragma HLS stream variable="
+             << vid << " depth=" << op->depth << "\n"; 
       break;
     case StreamType::Pipe:
       break;
   }
-  int channel_index = 0;
-  Expr index_expr;
-  for (size_t i = 0; i < op->annotate_keys.size(); i++) {
-    auto key = op->annotate_keys[i].as<StringImm>()->value;
-    if (key == "channel") 
-      channel_index = op->annotate_values[i].as<IntImm>()->value;
-    else if (key == "index")
-      index_expr = op->annotate_values[i];
-  }
+  // int channel_index = 0;
+  // Expr index_expr;
+  // for (size_t i = 0; i < op->annotate_keys.size(); i++) {
+  //   auto key = op->annotate_keys[i].as<StringImm>()->value;
+  //   if (key == "channel") 
+  //     channel_index = op->annotate_values[i].as<IntImm>()->value;
+  //   else if (key == "index")
+  //     index_expr = op->annotate_values[i];
+  // }
 }
 
 class AllocateCollector final : public IRVisitor {
@@ -373,7 +374,7 @@ void CodeGenVivadoHLS::VisitStmt_(const KernelDef* op) {
         PrintIndent();
         stream << "#pragma HLS INTERFACE m_axi port="
                << GetVarID(op->args[i].get()) << " "
-               << "bundle=gmem\n";
+               << "offset=slave bundle=gmem" << i << "\n";
       }
     }
     // control interface 
