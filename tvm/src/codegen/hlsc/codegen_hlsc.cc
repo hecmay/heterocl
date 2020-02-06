@@ -27,15 +27,21 @@ std::string CodeGenHLSC::GetBufferRef(Type t, const Variable* buffer, Expr index
     if (is_scalar) {
       os << vid;
     } else { 
-      os << vid << "[";
-      PrintExpr(index, os);
-      os << "]";
-      // std::vector<Expr> indices = ExtractIndices(index, var_shape_map_[buffer], range_);
-      // for (size_t i = 0; i < indices.size(); i++) {
-      //   os << '[';
-      //   PrintExpr(indices[i], os);
-      //   os << ']';
-      // }
+      if (vid.find("_reuse") == std::string::npos) {
+        os << vid << "[";
+        PrintExpr(index, os);
+        os << "]";
+      } else {
+        os << vid;
+        CHECK(var_shape_map_.count(buffer)) 
+          << "buffer " << buffer->name_hint << " not found in var_shape_map";
+        std::vector<Expr> indices = ExtractIndices(index, var_shape_map_[buffer], range_);
+        for (size_t i = 0; i < indices.size(); i++) {
+          os << '[';
+          PrintExpr(indices[i], os);
+          os << ']';
+        }
+      }
     }
   }  
   return os.str();

@@ -109,6 +109,7 @@ void CodeGenVivadoHLS::VisitStmt_(const Allocate* op) {
     CHECK_GT(constant_size, 0)
         << "Can only handle constant size stack allocation for now";
     const Variable* buffer = op->buffer_var.as<Variable>();
+    var_shape_map_[buffer] = op->extents;
 
     std::string scope; // allocate on local scope by default 
     auto it = alloc_storage_scope_.find(buffer);
@@ -124,8 +125,17 @@ void CodeGenVivadoHLS::VisitStmt_(const Allocate* op) {
       this->PrintIndent();
       PrintType(op->type, stream);
       stream << ' '<< vid;
-      if (constant_size > 1) // Transfer length one array to scalar
-        stream << '[' << constant_size << "]";
+      if (constant_size > 1) { // Transfer length one array to scalar
+        if (vid.find("_reuse") != std::string::npos) {
+          for (size_t i = 0; i < op->extents.size(); i++) {
+            stream << '[';
+            PrintExpr(op->extents[i], stream);
+            stream << "]";
+          }
+        } else {
+          stream << '[' << constant_size << "]";
+        }
+      }
       stream << ";\n";
       // pragmas associated with allocate 
       for (auto& k : op->attrs) {
@@ -158,13 +168,17 @@ void CodeGenVivadoHLS::VisitStmt_(const For* op) {
       if (auto e = st->value.as<StreamExpr>()) {
         if (e->buffer_var.get()->name_hint.find("channel")
             != std::string::npos) return;
-      // ignore the initilization 
-      } else if (auto v = st->value.as<IntImm>()) {
-        if (v->value == 0) return;
-      } else if (auto v = st->value.as<FloatImm>()) {
-        if (v->value == 0) return;
-      } else if (auto v = st->value.as<UIntImm>()) {
-        if (v->value == 0) return;
+
+      } else {// ignore the initilization 
+        auto value = st->value;
+        if (auto c = value.as<Cast>()) value = c->value;
+        if (auto v = value.as<IntImm>()) {
+          if (v->value == 0) return;
+        } else if (auto v = value.as<FloatImm>()) {
+          if (v->value == 0) return;
+        } else if (auto v = value.as<UIntImm>()) {
+          if (v->value == 0) return;
+        }
       }
     }
   }

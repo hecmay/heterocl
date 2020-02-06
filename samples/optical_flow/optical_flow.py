@@ -8,12 +8,12 @@ from PIL import Image
 # height x width
 size = (436, 1024)
 height, width = size
-hcl.init(hcl.Float(32))
-dtype = hcl.Float(32)
+hcl.init(hcl.Fixed(32,12))
+dtype = hcl.Fixed(32,12)
 
 # setup target using vivado 
 tool = hcl.tool.sdaccel
-tool.mode = "sw_emu"
+tool.mode = "hw_emu"
 os.environ["AWS_PLATFORM"] = "xilinx_vcu1525_dynamic_5_1"
 target = hcl.platform.aws_f1(tool)
 target.xcel.lang = "vhls"
@@ -46,7 +46,7 @@ def optical_flow(target=target):
 
     def kernel(img0, img1, img2, img2_0, img3, img4, output):
 
-       sum = hcl.reducer(0, lambda x, y: x + y, dtype="float")
+       sum = hcl.reducer(0, lambda x, y: x + y, dtype)
 
        @hcl.def_([size, size, size])
        def calc_xy_gradient(input_image, grad_x, grad_y):
@@ -55,8 +55,8 @@ def optical_flow(target=target):
            ry = hcl.reduce_axis(0, 5, name="rdy")
            def update(y, x):
                with hcl.if_(hcl.and_(y>=2, y<height-2, x>=2, x<width-2)):
-                   grad_x[y,x] = sum(input_image[y, x-rx+2] * g_w[rx], axis=rx)
-                   grad_y[y,x] = sum(input_image[y-ry+2, x] * g_w[ry], axis=ry)
+                   grad_x[y][x] = sum(input_image[y][x-rx+2] * g_w[rx], axis=rx)
+                   grad_y[y][x] = sum(input_image[y-ry+2][x] * g_w[ry], axis=ry)
            hcl.mutate(size, lambda y, x: update(y, x))
            
        @hcl.def_([size, size, size, size, size, size])
@@ -198,18 +198,20 @@ def optical_flow(target=target):
       k_calc_flow = kernel.flow_calc
 
       # creat streaming channels + reuse buffer
+      # rb = s.reuse_at(k_grad_xy.input_image, s[k_grad_xy], k_grad_xy.axis[1])
+      # s.partition(rb, dim=1)
+
       rb_0 = s.reuse_at(k_grad_x.y_filt, s[k_grad_x], k_grad_x.axis[2])
+      s.partition(rb_0, dim=2)
+
       rb_1_0 = s.reuse_at(k_grad_y.grad_z, s[k_grad_y], k_grad_y.axis[1])
-      # rb_1_1 = s.reuse_at(k_grad_y.grad_x, s[k_grad_y], k_grad_y.axis[1])
-      # rb_1_2 = s.reuse_at(k_grad_y.grad_y, s[k_grad_y], k_grad_y.axis[1])
+      s.partition(rb_1_0, dim=0)
+
       rb_2 = s.reuse_at(k_tensor_x.tensor_y, s[k_tensor_x], k_tensor_x.axis[2])
+      s.partition(rb_2, dim=2)
+
       rb_3 = s.reuse_at(k_tensor_y.outer, s[k_tensor_y], k_tensor_y.axis[1])
-      s.partition(rb_0, dim=0)
-      s.partition(rb_1_0, hcl.Partition.Block, factor=3)
-      # s.partition(rb_1_1, hcl.Partition.Block, factor=3)
-      # s.partition(rb_1_2, hcl.Partition.Block, factor=3)
-      s.partition(rb_2, dim=0)
-      s.partition(rb_3, hcl.Partition.Block, factor=3)
+      s.partition(rb_3, dim=1)
 
       s.to(kernel.grad_x, 
            s[k_grad_y], s[k_grad_xy], hcl.Stream.FIFO)

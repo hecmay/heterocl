@@ -23,20 +23,38 @@ Type String2Type(std::string& s) {
   }
   std::istringstream is(s);
   halideir_type_code_t code = Type::Int;
+  int bits = 32, lanes = 1;
   if (s.substr(0, 3) == "int") {
     code = Type::Int; s = s.substr(3);
+
   } else if (s.substr(0, 4) == "uint") {
     code = Type::UInt; s = s.substr(4);
+
   } else if (s.substr(0, 5) == "float") {
     code = Type::Float; s = s.substr(5);
-  } else if (s.substr(0, 5) == "float") {
-    code = Type::Float; s = s.substr(5);
+
+  } else if (s.substr(0, 5) == "fixed") {
+    code = Type::Int; s = s.substr(5);
+    int integer = 0;
+    if (sscanf(s.c_str(), "%d_%d", &bits, &integer) == 0) 
+      LOG(FATAL) << "unknown type " << s;
+    CHECK(integer <= bits) << "invalid type " << s;
+    return Type(code, bits, lanes, integer);
+
+  } else if (s.substr(0, 6) == "ufixed") {
+    code = Type::UInt; s = s.substr(6);
+    int integer = 0;
+    if (sscanf(s.c_str(), "%d_%d", &bits, &integer) == 0) 
+      LOG(FATAL) << "unknown type " << s;
+    CHECK(integer <= bits) << "invalid type " << s;
+    return Type(code, bits, lanes, bits - integer);
+
   } else if (s == "handle") {
     return Handle();
+
   } else {
     LOG(FATAL) << "unknown type " << s;
   }
-  int bits = 32, lanes = 1;
   if (sscanf(s.c_str(), "%dx%d", &bits, &lanes) == 0) {
     LOG(FATAL) << "unknown type " << s;
   }
@@ -654,6 +672,7 @@ void CodeGenC::VisitExpr_(const Load* op, std::ostream& os) {  // NOLINT(*)
     std::string ref = GetBufferRef(op->type, op->buffer_var.get(), op->index);
     os << ref;
   } else {
+    LOG(INFO) << op->buffer_var;
     CHECK(is_one(op->predicate))
         << "predicated load is not supported";
     Expr base;

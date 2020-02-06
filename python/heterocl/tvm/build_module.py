@@ -179,7 +179,17 @@ def copy_and_compile(platform, mode, backend):
             out = run_process(cmd, env=env)
 
         elif mode == "hw":
-            out = run_process("cd __tmp__; ./run_hw.sh")
+            env = os.environ.copy()
+            assert "AWS_PLATFORM" in os.environ, \
+                   "aws platform info missing" 
+
+            env["XCL_EMULATION_MODE"] = "hw"
+            cmd = "cd __tmp__; make clean;"
+            cmd += "emconfigutil --platform=$AWS_PLATFORM;"
+            cmd += "make ocl OCL_TARGET=hw \
+                    OCL_PLATFORM=$AWS_PLATFORM \
+                    APPLICATION_DIR=" + os.getcwd() + "/__tmp__/"
+            out = run_process(cmd, env=env)
           
         return "success"
 
