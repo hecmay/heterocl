@@ -1,0 +1,29 @@
+FROM centos:centos7
+
+# install gcc 7 toolset
+RUN yum -y update
+RUN yum -y install centos-release-scl
+RUN yum -y install devtoolset-7-gcc*
+SHELL [ "/usr/bin/scl", "enable", "devtoolset-7"]
+
+# install conda & python 3
+RUN yum -y install curl bzip2 wget \
+    && curl -sSL https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -o /tmp/miniconda.sh \
+    && bash /tmp/miniconda.sh -bfp /usr/local/ \
+    && rm -rf /tmp/miniconda.sh \
+    && conda install -y python=3.7 \
+    && conda update conda \
+
+RUN conda create --name hcl python=3.7
+SHELL ["conda", "run", "-n", "hcl", "/bin/bash", "-c"]
+
+# initialize aws-fpga & xrt
+RUN git clone https://github.com/aws/aws-fpga.git
+RUN cd aws-fpga; source sdaccel_runtime_setup.sh; source sdaccel_setup.sh; cd ../
+RUN wget https://aws-fpga-developer-ami.s3.amazonaws.com/1.7.0/Patches/XRT_2019_1_RC2/xrt_201910.2.2.0_7.6.1810-xrt.rpm
+RUN wget https://aws-fpga-developer-ami.s3.amazonaws.com/1.7.0/Patches/XRT_2019_1_RC2/xrt_201910.2.2.0_7.6.1810-aws.rpm
+RUN yum reinstall xrt*.rpm -y
+
+# install heterocl
+RUN git clone https://github.com/Hecmay/heterocl.git
+RUN cd heterocl; make -j16; cd ../

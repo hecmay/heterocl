@@ -236,6 +236,9 @@ class ReuseBufferInserter final : public IRMutator {
             // TODO: for comparison, mod is not allowed
             Expr min_diff = Simplify(new_min_expr - min_expr);
             Expr max_diff = Simplify(new_max_expr - max_expr);
+            // LOG(INFO) << expr_list[i][dim];
+            // LOG(INFO) << expr_list[0][dim];
+            // for (auto& kv : max_map) LOG(INFO) << kv.first->name_hint << ":" << kv.second;
             if (!is_const(min_diff) || !is_const(max_diff))
               LOG(FATAL) << "The bound of the reuse region cannot be determined";
             if (is_one(Simplify(min_diff <= 0))) {
@@ -267,7 +270,7 @@ class ReuseBufferInserter final : public IRMutator {
             // check if there is overlap between reuse axis
             // e.g. next_min = y+1, max_incr = y+2
             Expr compare = Simplify(max_expr > next_min);
-            // LOG(INFO) << max_expr << ":" << next_min;
+            // LOG(INFO) << max_expr << ":" << next_min << ":" << expr_list[0][dim];
             if (is_zero(compare))
               LOG(FATAL) << "No reuse is found in axis " << op->loop_var; 
             reuse = dim;
@@ -451,7 +454,35 @@ class ReuseBufferInserter final : public IRMutator {
     Stmt Mutate_(const KernelDef* op, const Stmt& s) {
       for (size_t i = 0; i < op->args.size(); i++) 
         shape_map_[op->args[i].get()] = op->api_args[i];
-      return IRMutator::Mutate_(op, s);
+      // insert resue allocate before body 
+      Stmt body = this->Mutate(op->body);
+      if (attr_alloc_list_.size()) {
+        for (auto stmt : attr_alloc_list_) {
+          const AttrStmt* attr = stmt.as<AttrStmt>();
+          const Allocate* alloc = attr->body.as<Allocate>();
+          Array<Expr> old_extents = alloc->extents;
+          Array<Expr> new_extents;
+          for (int i = old_extents.size()-1; i >= 0; --i)
+            new_extents.push_back(old_extents[i]);
+          body = Allocate::make(
+              alloc->buffer_var,
+              alloc->type,
+              new_extents,
+              alloc->condition,
+              body,
+              alloc->attrs,
+              alloc->new_expr,
+              alloc->free_function);
+          body = AttrStmt::make(
+              attr->node,
+              attr->attr_key,
+              attr->value,
+              body);
+        }
+        attr_alloc_list_.clear();
+      }
+      return KernelDef::make(op->args, op->api_args, op->api_types, 
+                 body, op->ret_void, op->ret_type, op->name, op->channels);
     }
 
     Stmt Mutate_(const Allocate* op, const Stmt& s) {

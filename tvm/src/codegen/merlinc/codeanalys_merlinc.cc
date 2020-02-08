@@ -765,7 +765,12 @@ void CodeAnalysMerlinC::VisitStmt_(const Allocate* op) {
     CHECK_GT(constant_size, 0)
         << "Can only handle constant size stack allocation for now";
     const Variable* buffer = op->buffer_var.as<Variable>();
-    std::string scope = alloc_storage_scope_.at(buffer);
+    std::string scope; // allocate on local scope by default 
+    auto it = alloc_storage_scope_.find(buffer);
+    if (it != alloc_storage_scope_.end())
+      scope = alloc_storage_scope_.at(buffer);
+    else scope = "global";
+
     PrintStorageScope(scope, stream);
     stream << ' ';
     PrintType(op->type, stream);

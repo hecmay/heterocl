@@ -629,10 +629,15 @@ class InfoUpdater final : public IRMutator {
 
     // 1. remove unnecessary alloc for kernel 
     while (! name.empty() && 
-           name.find_last_of("0123456789") != std::string::npos)
+           name.find_last_of("0123456789") != std::string::npos) {
+      if (name.find_last_of("0123456789") != name.size()-1 || 
+          name.find("reuse") != std::string::npos) break;
       name.erase(name.size()-1, 1);
-    if (kernel_index_map_.count(name))
-      return op->body;
+      if (kernel_index_map_.count(name)) {
+        // LOG(INFO) << name << ":" << op->buffer_var.get()->name_hint;
+        return op->body;
+      }
+    }
 
     // 2. mark the buffer allocator with pragma attr
     for (size_t i = 0; i < marked_buffer_.size(); i++) {
@@ -935,7 +940,6 @@ class SplitDevice final : public IRMutator {
 };
 
 // 1. add annotation to kernel def node 
-// 2. move the allocate reuse buffer into kernel def
 class KernelAnnotator final : public IRMutator {
  public:
   KernelAnnotator(
@@ -959,21 +963,6 @@ class KernelAnnotator final : public IRMutator {
                  op->body, op->ret_void, op->ret_type, op->name, channels);
     }
     return s;
-  }
-
-  // move resue allocate into kernel module
-  Stmt Mutate_(const Allocate *op, const Stmt& s) final {
-    Stmt stmt = IRMutator::Mutate_(op, s);
-    op = stmt.as<Allocate>();
-    if (auto k = op->body.as<KernelDef>()) {
-      Stmt new_body = k->body;
-      new_body = Allocate::make(op->buffer_var, op->type, op->extents,
-                                op->condition, new_body, op->attrs,
-                                op->new_expr, op->free_function);
-      return KernelDef::make(k->args, k->api_args, k->api_types, 
-                 new_body, k->ret_void, k->ret_type, k->name, k->channels);
-    }
-    return stmt;
   }
 
  private:

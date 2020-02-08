@@ -55,7 +55,7 @@ def optical_flow(target=target):
            rx = hcl.reduce_axis(0, 5, name="rdx")
            def update(y, x):
                with hcl.if_(hcl.and_(y>=2, y<height-2, x>=2, x<width-2)):
-                   grad_x[y][x] = sum(input_image_0[y][x-rx+2] * g_w[rx], axis=rx)
+                   grad_x[y,x] = sum(input_image_0[y, x+rx-2] * g_w[rx], axis=rx)
            hcl.mutate(size, lambda y, x: update(y, x))
            
        @hcl.def_([size, size])
@@ -64,7 +64,7 @@ def optical_flow(target=target):
            ry = hcl.reduce_axis(0, 5, name="rdy")
            def update(y, x):
                with hcl.if_(hcl.and_(y>=2, y<height-2, x>=2, x<width-2)):
-                   grad_y[y][x] = sum(input_image_1[y-ry+2][x] * g_w[ry], axis=ry)
+                   grad_y[y,x] = sum(input_image_1[y+ry-2, x] * g_w[ry], axis=ry)
            hcl.mutate(size, lambda y, x: update(y, x))
            
 
@@ -396,13 +396,75 @@ def optical_flow(target=target):
 
       k_calc_flow = kernel.flow_calc
 
+      # reuse buffer
+      rb_0 = s.reuse_at(k_grad_x.input_image_0, s[k_grad_x], k_grad_x.axis[1])
+      s.partition(rb_0, dim=2)
+      rb_1 = s.reuse_at(k_grad_y.input_image_1, s[k_grad_y], k_grad_y.axis[0])
+      s.partition(rb_1, dim=1)
+
+      # reuse to calculate y_filt
+      rb_2 = s.reuse_at(k_grad_weight_y_0.grad_x, 
+                 s[k_grad_weight_y_0], k_grad_weight_y_0.axis[0])
+      s.partition(rb_2, dim=1)
+      rb_3 = s.reuse_at(k_grad_weight_y_1.grad_y, 
+                 s[k_grad_weight_y_1], k_grad_weight_y_1.axis[0])
+      s.partition(rb_3, dim=1)
+      rb_4 = s.reuse_at(k_grad_weight_y_2.grad_z, 
+                 s[k_grad_weight_y_2], k_grad_weight_y_2.axis[0])
+      s.partition(rb_4, dim=1)
+
+      # reuse for filt_grad
+      rb_5 = s.reuse_at(k_grad_weight_x_0.y_filt_0, 
+                 s[k_grad_weight_x_0], k_grad_weight_x_0.axis[1])
+      s.partition(rb_5, dim=2)
+      rb_6 = s.reuse_at(k_grad_weight_x_1.y_filt_1, 
+                 s[k_grad_weight_x_1], k_grad_weight_x_1.axis[1])
+      s.partition(rb_6, dim=2)
+      rb_7 = s.reuse_at(k_grad_weight_x_2.y_filt_2, 
+                 s[k_grad_weight_x_2], k_grad_weight_x_2.axis[1])
+      s.partition(rb_7, dim=2)
+
+      # reuse for tensor_weight_y
+      rb_8 = s.reuse_at(k_tensor_y_0.out_product_0, 
+                 s[k_tensor_y_0], k_tensor_y_0.axis[0])
+      s.partition(rb_8, dim=1)
+      rb_9 = s.reuse_at(k_tensor_y_1.out_product_1, 
+                 s[k_tensor_y_1], k_tensor_y_1.axis[0])
+      s.partition(rb_9, dim=1)
+      rb_10 = s.reuse_at(k_tensor_y_2.out_product_2, 
+                 s[k_tensor_y_2], k_tensor_y_2.axis[0])
+      s.partition(rb_10, dim=1)
+      rb_11 = s.reuse_at(k_tensor_y_3.out_product_3, 
+                 s[k_tensor_y_3], k_tensor_y_3.axis[0])
+      s.partition(rb_11, dim=1)
+      rb_12 = s.reuse_at(k_tensor_y_4.out_product_4, 
+                 s[k_tensor_y_4], k_tensor_y_4.axis[0])
+      s.partition(rb_12, dim=1)
+      rb_13 = s.reuse_at(k_tensor_y_5.out_product_5, 
+                 s[k_tensor_y_5], k_tensor_y_5.axis[0])
+      s.partition(rb_13, dim=1)
+
+      # reuse for tensor_weight_x
+      rb_14 = s.reuse_at(k_tensor_x_0.tensor_y_0, 
+                 s[k_tensor_x_0], k_tensor_x_0.axis[1])
+      s.partition(rb_14, dim=2)
+      rb_15 = s.reuse_at(k_tensor_x_1.tensor_y_1, 
+                 s[k_tensor_x_1], k_tensor_x_1.axis[1])
+      s.partition(rb_15, dim=2)
+      rb_16 = s.reuse_at(k_tensor_x_2.tensor_y_2, 
+                 s[k_tensor_x_2], k_tensor_x_2.axis[1])
+      s.partition(rb_16, dim=2)
+      rb_17 = s.reuse_at(k_tensor_x_3.tensor_y_3, 
+                 s[k_tensor_x_3], k_tensor_x_3.axis[1])
+      s.partition(rb_17, dim=2)
+      rb_18 = s.reuse_at(k_tensor_x_4.tensor_y_4, 
+                 s[k_tensor_x_4], k_tensor_x_4.axis[1])
+      s.partition(rb_18, dim=2)
+      rb_19 = s.reuse_at(k_tensor_x_5.tensor_y_5, 
+                 s[k_tensor_x_5], k_tensor_x_5.axis[1])
+      s.partition(rb_19, dim=2)
+
       # creat streaming channels + reuse buffer
-      # rb_0 = s.reuse_at(k_grad_x.input_image_0, s[k_grad_x], k_grad_x.axis[1])
-      # s.partition(rb_0, dim=2)
-
-      # rb_1 = s.reuse_at(k_grad_y.input_image_1, s[k_grad_y], k_grad_y.axis[0])
-      # s.partition(rb_1, dim=1)
-
       s.to(kernel.grad_x, 
            s[k_grad_weight_y_0], s[k_grad_x], hcl.Stream.FIFO)
       s.to(kernel.grad_y, 
@@ -472,7 +534,7 @@ def optical_flow(target=target):
       s[k_grad_weight_x_1].pipeline(k_grad_weight_x_1.axis[1])
       s[k_grad_weight_x_2].pipeline(k_grad_weight_x_2.axis[1])
 
-    print(hcl.lower(s))
+    # print(hcl.lower(s))
     return hcl.build(s, target)
 
 hcl_output = hcl.asarray(np.zeros((463,1024,2)), dtype)    
