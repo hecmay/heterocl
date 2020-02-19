@@ -1,13 +1,22 @@
 ### TODO
   * consider data movement in nested loops. 
   * consider "move data from local to kernel"? 
-  * correct location to insert "attr partition" in SDAccel 
   * move data to different storage on xcel?
+  * stop using device scope flag insertiton to split the host code from device: perform the splitting after the boudn inference pass. 1. create a map from stage to device scope. 2. replace the hyper-node (i.e. the stages grouped into same scoep) with a new stage including only kernel stmt.  
+
+# 2020-02-19
+  * how to factor channel into intel opencl backend?    
+
+# 2020-02-09
+  * support data packing of multiple variable
+  * data padding for sequential data access  
+  * correct location to insert "attr partition" in SDAccel 
 
 # 2020-02-05
   * array partitioning heterocl module  
   * create multi-kernel program in host code generator
-    * 1. How to determine whether a kernel stmt is categorized into kernel or sub function: if there is a pipe or channel between 
+    * 1. How to determine whether a kernel stmt is categorized into kernel or sub function: for the HLSC backend, channels are represented by hls::stream explicitly or as FIFO, whcih will be annotated by STREAM prgama. For OpenCL, kernel functions need to be initialized and called by host. 
+    * 2. change the stream type to be backend agnostic ()
 
 # 2020-02-04
   * generate the host code & Makefiel for simulation

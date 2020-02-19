@@ -57,7 +57,7 @@ namespace TVM {
 namespace schedule {
 
 // construct a read graph that gives readers of each operation
-// that the root depend on
+// that the roots (i.e., output operations) depend on
 ReadGraph CreateReadGraph(const Array<Operation>& roots, const Schedule& sch) {
   ReadGraph rmap;
   std::vector<Operation> stack;
@@ -74,16 +74,19 @@ ReadGraph CreateReadGraph(const Array<Operation>& roots, const Schedule& sch) {
     Array<Tensor> deps = op->InputTensors();
     Array<Tensor> new_deps;
     for (Tensor t : deps) {
+      // tensor as output of the operation 
       if (t->op.defined()) {
-        // need to get the updated op
         Operation dep_op;
+        // op2tensors map for empty sch
         if (sch->stage_map.size() == 0) {
           dep_op = t->op;
           new_deps.push_back(t);
-        } else {
+        // get op from existing sch
+        } else { 
           dep_op = sch->stage_map[t->op]->op;
           new_deps.push_back(dep_op.output(0));
         }
+        // an tensor might be feeding multiple ops 
         if (visited.count(dep_op.get()) == 0) {
           visited.insert(dep_op.get());
           stack.push_back(dep_op);
@@ -149,6 +152,7 @@ Array<Operation> GetSubGraph(const Array<Tensor>& outputs,
 }
 
 
+// schedule op in DFS fashion 
 void PostDFSOrder(const Operation& op,
                   const ReadGraph& g,
                   std::unordered_set<Operation>* visited,
@@ -182,6 +186,7 @@ FeedGraph CreateFeedGraph(const ReadGraph& g) {
   return fg;
 }
 
+// attach path mapping from op to itervar list 
 AttachPath CreateAttachPath(Schedule sch) {
   AttachPath ret;
   for (Stage stage : sch->stages) {

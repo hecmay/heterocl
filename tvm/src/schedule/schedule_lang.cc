@@ -18,6 +18,7 @@ namespace {
 
 using namespace ir;
 
+// update the attachment of stages with extern op
 class AttachedStagesUpdater final : public IRVisitor {
   public:
     AttachedStagesUpdater(const Map<NodeRef, Stage>& stage_buf_map,
@@ -27,6 +28,7 @@ class AttachedStagesUpdater final : public IRVisitor {
     void Visit_(const AttrStmt* op) {
       if (op->attr_key == attr::attach_scope) {
         if (stage_buf_map_.count(op->node)) {
+          // other stage's output used by current stage (and marked attached)
           stage_->attached_stages.push_back(stage_buf_map_.at(op->node));
         }
       }
@@ -688,6 +690,7 @@ Array<Tensor> RemapTensor(ScheduleNode* self,
   const auto& op2stage_cache = self->op2stage_cache_;
   Array<Tensor> ret;
   for (Tensor t : arr) {
+    // remap tensor not in op2stage map
     if (!op2stage_cache.count(t->op.get())) {
       CHECK(self->stage_map.count(t->op))
           << "Given tensor is not in the schedule plan";
@@ -736,6 +739,7 @@ Stage Schedule::create_group(const Array<Tensor>& outputs,
   }
   // Create the new group stage.
   Stage gstage(std::make_shared<StageNode>());
+  // Common parent stage as group stage
   gstage->group = parent_group;
   if (parent_group.defined()) {
     ++parent_group->num_child_stages;
@@ -833,6 +837,7 @@ Schedule ScheduleNode::make(Array<Operation> ops) {
   for (Operation x : ops) {
     output_set.insert(x);
   }
+  // setup op2stage map and stage array 
   for (Operation op : post_order) {
     Stage stage(op);
     stage->is_output = output_set.count(op) != 0;
@@ -841,6 +846,7 @@ Schedule ScheduleNode::make(Array<Operation> ops) {
     if (const ExternOpNode* node = op.as<ExternOpNode>())
       n->stage_buff_map.Set(node->output_placeholders[0], stage);
   }
+  // mark the attachment from other stages
   for (Stage stage : n->stages) {
     AttachedStagesUpdater visitor(n->stage_buff_map, stage);
     if (const ExternOpNode* node = stage->op.as<ExternOpNode>())

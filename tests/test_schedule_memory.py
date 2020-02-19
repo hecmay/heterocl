@@ -276,3 +276,49 @@ def test_reuse_select():
 
     assert np.array_equal(np_B, np_C)
 
+
+# def test_reuse_multiple_pattern():
+#     hcl.init()
+# 
+#     A = hcl.placeholder((10, 10))
+#     B = hcl.placeholder((10, 8))
+#     C = hcl.placeholder((8, 10))
+# 
+#     def kernel(a, b, c):
+# 
+#         @hcl.def_([(10,10), (10,8), (8,10)])
+#         def stencil(A, B, C):
+#             hcl.update(B, lambda y, x: A[y, x] + 2*A[y, x+1] + 3*A[y, x+2])
+#             hcl.update(C, lambda y, x: A[y, x] + 3*A[y+1, x] + 5*A[y+2, x])
+# 
+#         stencil(a, b, c)
+# 
+#     s = hcl.create_schedule([A, B, C], kernel)
+# 
+#     k = kernel.stencil
+#     RB1 = s.reuse_at(k.A, s[k], k.axis[1])
+#     RB2 = s.reuse_at(k.A, s[k], k.axis[0])
+#     f = hcl.build(s)
+# 
+#     np_A = np.random.randint(0, 10, size=(10, 10))
+#     np_B = np.zeros((10, 8), dtype="int")
+#     np_C = np.zeros((8, 10), dtype="int")
+# 
+#     for y in range(0, 10):
+#         for x in range(0, 8):
+#             np_B[y][x] = np_A[y][x]*1 + np_A[y][x+1]*2 + np_A[y][x+2]*3
+#             np_C[x][y] = np_A[x][y]*1 + np_A[x+1][y]*3 + np_A[x+2][y]*5
+# 
+#     hcl_A = hcl.asarray(np_A)
+#     hcl_B = hcl.asarray(np.zeros((10, 8), dtype="int"))
+#     hcl_C = hcl.asarray(np.zeros((8, 10), dtype="int"))
+# 
+#     f(hcl_A, hcl_B, hcl_C)
+# 
+#     ret_B = hcl_B.asnumpy()
+#     ret_C = hcl_C.asnumpy()
+#     assert np.array_equal(np_B, ret_B)
+#     assert np.array_equal(np_C, ret_C)
+
+
+

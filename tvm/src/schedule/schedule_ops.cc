@@ -20,6 +20,7 @@ namespace schedule {
 
 using namespace ir;
 
+// build stmt from stage op body 
 Stmt MakePipeline(const Stage& s,
                   const std::unordered_map<IterVar, Range>& dom_map,
                   Stmt consumer,
@@ -354,16 +355,16 @@ Stmt ScheduleOps(
     Stage attach_spec = s.GetAttachSpec();
 
     if (attach_spec->attach_type == kInlinedAlready) {
-      // do nothing
+      // do nothing for inlined compute op
     } else if (attach_spec->attach_type == kGroupRoot) {
       CHECK(!s->group.defined());
       if (body.defined()) {
         InjectStmt mutator(s, dom_map);
         body = mutator.inject(body);
-      } else {
+      } else { // build stmt realized from stage op body 
         body = MakePipeline(s, dom_map, body, del_trivial_loop);
       }
-    } else {
+    } else { // stage to be attached?
       CHECK_EQ(attach_spec->attach_type, kScope);
       CHECK(body.defined());
       InjectAttach mutator(s, attach_spec, dom_map, sch);

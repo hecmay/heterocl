@@ -20,7 +20,9 @@
 
 #include "merlinc/codeanalys_merlinc.h"
 #include "hlsc/codegen_vhls.h"
+#include "hlsc/codegen_ihls.h"
 #include "opencl/codegen_aocl.h"
+#include "opencl/codegen_aocl_host.h"
 #include "opencl/codegen_sdaccel_host.h"
 #include "opencl/codegen_sdaccel.h"
 #include "ppac/codegen_rv64_ppac.h"
@@ -84,7 +86,11 @@ class SimModuleNode final : public ModuleNode {
           system("rm -rf __tmp__; mkdir __tmp__");
 
           if (platform_ == "sdaccel") {
-            // GenWrapperCode(args, shmids, arg_types, arg_info_, func_);
+            GenHostCode(args, shmids, arg_types, func_, 
+                        platform_, host_, arg_info_, added_args_num);
+            GenKernelCode(dev_, platform_, options_["backend"]);
+
+          } else if (platform_ == "aocl") {
             GenHostCode(args, shmids, arg_types, func_, 
                         platform_, host_, arg_info_, added_args_num);
             GenKernelCode(dev_, platform_, options_["backend"]);
@@ -214,36 +220,11 @@ runtime::Module BuildSimModule(Array<LoweredFunc> funcs,
     cg_host.AddFunction(f, map_arg_type);
     cg_dev.AddFunction(f, map_arg_type);
   }
-  // vector {vars} with extern op arg 
-  auto& arg_vars = cg_dev.arg_vars;
-  // map {var : is_streamed(bool) }
-  auto& stream_table = cg_dev.stream_table;
-  // map {var : (vid, Type, shape)}
-  auto& arg_top_vars = cg_dev.arg_top_vars;
   // tool option mapping and platform 
   std::unordered_map<std::string, std::string> options;
-  // num of added arg (host consumed & xcel defined)
-  std::vector<int> add_args_num;
-  for (auto& kv : cg_dev.host_undefined) {
-    add_args_num.push_back(kv.second.size());
-    options["added_args_num"] = 
-        std::to_string(kv.second.size());
-  }
   options["backend"] = backend;
 
   argInfo arg_info;
-  for (size_t i = 0 ; i < arg_vars.size(); i++) {
-    auto v = arg_vars[i];
-    auto nameType = arg_top_vars[v];
-    bool is_stream;
-    if (stream_table[v])
-      is_stream = true;
-    else is_stream = false;
-    arg_info.push_back({/*var name*/nameType.name,
-                        /*whether is streamed*/is_stream, 
-                        /*data type*/nameType.type, 
-                        /*shape*/nameType.shape});
-  }
   for (size_t k = 1; k < attrs.size(); k++) {
     auto key = attrs[k].as<StringImm>()->value;
     auto val = values[k].as<StringImm>()->value;
@@ -286,6 +267,19 @@ TVM_REGISTER_API("codegen.build_sim")
                type == "vivado" || type == "sdsoc") {
       *rv = BuildSimModule<CodeGenVivadoHLS, CodeGenVivadoHLS>
                 (args[0], args[1], args[2]);
+
+    } else if (type == "aocl") {
+      if (lang == "aocl") {
+        *rv = BuildSimModule<CodeGenAOCLHost, CodeGenAOCL>
+                  (args[0], args[1], args[2]);
+      } else if (lang == "ihls") {
+        *rv = BuildSimModule<CodeGenAOCLHost, CodeGenIntelHLS>
+                  (args[0], args[1], args[2]);
+      } else {
+        LOG(FATAL) << "aocl does not support "
+                   << lang << " backend";
+      }
+
     } else {
       LOG(FATAL) << "unrecognized platform " << type;
     }

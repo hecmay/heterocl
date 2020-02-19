@@ -137,7 +137,7 @@ dev_table = {
   "aws_f1" : [CPU("intel", "e5"), FPGA("xilinx", "xcvu19p")],
   "zc706" : [CPU("arm", "a9"), FPGA("xilinx", "xc7z045")],
   "rocc-ppac" : [CPU("riscv", "riscv"), PIM("ppac", "ppac")],
-  "stratix10_sx": [CPU("arm", "a53"), FPGA("intel", "stratix10_gx")]
+  "stratix10_sx": [CPU("arm", "a53"), FPGA("intel", "stratix10_sx")]
 }
 
 class env(type):
@@ -162,6 +162,10 @@ class env(type):
             devs = dev_table[key]
             host = devs[0].set_lang("hlsc")
             xcel = devs[1].set_lang("hlsc")
+        elif key == "stratix10_sx":
+            devs = dev_table[key]
+            host = devs[0].set_lang("opencl")
+            xcel = devs[1].set_lang("aocl")
         elif key == "llvm":
             devs = None 
             host = None 

@@ -508,6 +508,7 @@ def lower(sch,
     # normalize schedule first
     sch = sch.normalize()
     # Phase 0
+    # sch = schedule.ScopePartition(sch)
     bounds = schedule.InferBound(sch)
     stmt = schedule.ScheduleOps(sch, bounds)
     stmt = ir_pass.InjectPrefetch(stmt)
@@ -610,6 +611,9 @@ def build_fpga_kernel(sch, args, target, name="default_function"):
         if target.tool.name == "sdaccel":
             host = target.host.lang.replace("opencl", "sdaccel")
             xcel = target.xcel.lang.replace("hlsc", "sdaccel")
+        if target.tool.name == "aocl":
+            host = target.host.lang = "aocl"
+            xcel = target.xcel.lang = "aocl"
         elif target.tool.name in ("vivado_hls", "vivado", "sdsoc"):
             host = target.host.lang.replace("hlsc", "vhls")
             xcel = target.xcel.lang.replace("hlsc", "vhls")

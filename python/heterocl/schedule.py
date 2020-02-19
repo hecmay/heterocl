@@ -167,8 +167,9 @@ class Schedule(object):
                     target = tensor
             if name is None:
                 name = target.name + ".stream"
-            if src is None: # record placement 
-                self.placement[target.name] = dst
+            # record the placement information 
+            if src is None:  
+                self.placement[target] = dst
             ret = self.sch.to(target, dst, src, 
                               stream_type, depth, name, occ)
             name = None
@@ -375,6 +376,7 @@ class Stage(object):
             superstage.var_dict[self.name] = self
             # update prefix
             self.name_with_prefix = superstage.name_with_prefix + "." + self.name
+
         else: # otherwise update the list of stages globally
             Schedule.stage_ops.append(self)
             Schedule.last_stages.add(self)

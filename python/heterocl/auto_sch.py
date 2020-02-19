@@ -31,7 +31,7 @@ def auto_sch(sch, func, target, plot=False):
               for _ in graph.predecessors(node):
                 if isinstance(op_map[_].op, tensor.PlaceholderOp) or \
                    "reducer" in _: continue # skip palceholders
-                else: # TODO consider cpmplex merging  
+                else: # TODO consider complex merging  
                   grouping(_, node, sch, func, target)
                   hypernode[_] = node
                   
@@ -41,7 +41,7 @@ def auto_sch(sch, func, target, plot=False):
 
     if plot: # colored graph  
         partitions = list()
-        for _ in set(self.placement.values()):
+        for _ in set(sch.placement.values()):
             if "cpu" in str(_): partitions.insert(0, _)
             else: partitions.append(_)
         colors  = ["lightblue", "red"] # cpu & fpga
@@ -51,8 +51,8 @@ def auto_sch(sch, func, target, plot=False):
 
         # create device color mapping 
         for node in graph:
-          if node in self.placement:
-            color = mapping[self.placement[node]]
+          if node in sch.placement:
+            color = mapping[sch.placement[node.name]]
           color_map.append(color)
     
         pos = nx.nx_pydot.graphviz_layout(graph, prog="fdp")

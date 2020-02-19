@@ -33,7 +33,8 @@ Stmt BufferInserter(Stmt stmt, /*original extern op body*/
                     Array<Expr> shape, /*target buffer shape*/ 
                     const VarExpr& target, /*target load & store buf*/
                     const VarExpr& c_buf, /*channel buffer*/
-                    bool load_mode /*load or store mode*/) {
+                    bool load_mode, /*load or store mode*/
+                    StreamType type, int channel_depth) {
   // compute indices for load / store
   std::vector<Expr> indices;
   std::vector<VarExpr> loop_vars;
@@ -47,7 +48,7 @@ Stmt BufferInserter(Stmt stmt, /*original extern op body*/
   if (load_mode) { // local buffer reading from stream channel  
     Expr stream = StreamExpr::make(target->type,
                                    VarExpr(c_buf.node_),
-                                   StreamType::FIFO, 1);
+                                   type, channel_depth);
     // store op initialized with variable node
     Stmt for_stmt = Store::make(VarExpr(target.node_),
                                 stream, index,
@@ -68,7 +69,7 @@ Stmt BufferInserter(Stmt stmt, /*original extern op body*/
                            VarExpr(target.node_), index, 
                            UIntImm::make(UInt(1), 1));
     Stmt for_stmt = StreamStmt::make(VarExpr(c_buf.node_),
-                                   load, StreamType::FIFO, 1);
+                                     load, type, channel_depth);
 
     auto type = ForType::Serial;
     for (size_t j = 0; j < shape.size(); j++) {
@@ -121,6 +122,9 @@ class AccessCollector : public ir::IRMutator {
   Expr Mutate_(const Load* op, const Expr& e) {
     std::string target_name = op->buffer_var.get()->name_hint;
     // check if buffer matches
+    LOG(INFO) << "--------------";
+    LOG(INFO) << op->buffer_var.get()->name_hint;
+    LOG(INFO) << op->buffer_var.get() << ":" << target_buf_.get();
     if (op->buffer_var.get() == target_buf_.get()) {
       load_num += 1; 
       load_var = VarExpr(op->buffer_var.node_);
@@ -503,7 +507,9 @@ class KernelUpdater final : public IRMutator {
             // create buffer for broadcasting  
             CHECK(ac.store_var.as<Variable>()) << "not a variable";
             VarExpr buf_var(ac.store_var.node_);
-            stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, false);
+            stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, 
+                                  /*load mode*/false, /*stream type*/type_,
+                                  /*channel depth*/channel_depth_);
           }
 
         } else if (ac.store_num > 1) {
@@ -512,7 +518,8 @@ class KernelUpdater final : public IRMutator {
           // create buffer for broadcasting  
           CHECK(ac.store_var.as<Variable>()) << "not a variable";
           VarExpr buf_var(ac.store_var.node_);
-          stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, false);
+          stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, false,
+                                type_, channel_depth_);
 
         } else { // invalid target 
           LOG(FATAL) << "target variable " << target_ << " not found; "
@@ -535,10 +542,10 @@ class KernelUpdater final : public IRMutator {
           // create buffer for broadcasting  
           CHECK(ac.load_var.as<Variable>()) << "not a variable";
           VarExpr buf_var(ac.load_var.node_);
-          stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, true);
+          stmt = BufferInserter(stmt, shape, buf_var, channel_buf_, true,
+                                type_, channel_depth_);
 
         } else { // invalid target
-
           LOG(FATAL) << "target variable " << target_ << " not found; "
                      << "schedule does not apply";
         }
@@ -695,53 +702,49 @@ void Schedule::stream_to(const Tensor& target,
     }
   }
 
-
   // infer argument position of dest & src op
   CHECK(stream_pos.size() == 2) << "missing pos index";
   int destPos = stream_pos[0].as<IntImm>()->value;
   int srcPos  = stream_pos[1].as<IntImm>()->value;
 
-  if (stream_type == StreamType::Channel || 
-      stream_type == StreamType::Pipe) {
-    // create common channel buffer
-    KernelUpdater::channelCount += 1;
-    auto ch_index = KernelUpdater::channelCount;
-    VarExpr c_buf("c_buf_" + std::to_string(ch_index));
+  // create common channel buffer
+  KernelUpdater::channelCount += 1;
+  auto ch_index = KernelUpdater::channelCount;
+  VarExpr c_buf("c_buf_" + std::to_string(ch_index));
 
-    // insert reuse buffer in dest op body
-    KernelUpdater destMutator(destPos, stream_type, channel_depth, 
-                              /*is producer*/false, c_buf, 
-                              /*inter module channel*/ch_index);
-    KernelUpdater srcMutator(srcPos, stream_type, channel_depth, 
-                             /*is producer*/true, c_buf, 
-                             /*inter module channel*/ch_index);
+  // insert reuse buffer in dest op body
+  KernelUpdater destMutator(destPos, stream_type, channel_depth, 
+                            /*is producer*/false, c_buf, 
+                            /*inter module channel*/ch_index);
+  KernelUpdater srcMutator(srcPos, stream_type, channel_depth, 
+                           /*is producer*/true, c_buf, 
+                           /*inter module channel*/ch_index);
 
-    if (destOp == srcOp) { // self feedback loop
-      srcMutator.self_loop  = true;
-      destMutator.self_loop = true;
-      Stmt new_body = srcMutator.Mutate(srcOp->body);
-      new_body = destMutator.Mutate(new_body);
-      source->op = ExternOpNode::make(srcOp->name, srcOp->tag,
-                                      srcOp->axis, srcOp->inputs,
-                                      srcOp->input_placeholders,
-                                      srcOp->output_placeholders,
-                                      new_body);
+  if (destOp == srcOp) { // self feedback loop
+    srcMutator.self_loop  = true;
+    destMutator.self_loop = true;
+    Stmt new_body = srcMutator.Mutate(srcOp->body);
+    new_body = destMutator.Mutate(new_body);
+    source->op = ExternOpNode::make(srcOp->name, srcOp->tag,
+                                    srcOp->axis, srcOp->inputs,
+                                    srcOp->input_placeholders,
+                                    srcOp->output_placeholders,
+                                    new_body);
 
-    } else { // update kernels separately  
-      Stmt new_dest_body = destMutator.Mutate(destOp->body);
-      Stmt new_src_body = srcMutator.Mutate(srcOp->body);
-      dest->op = ExternOpNode::make(destOp->name, destOp->tag,
-                                    destOp->axis, destOp->inputs,
-                                    destOp->input_placeholders,
-                                    destOp->output_placeholders,
-                                    new_dest_body);
-      source->op = ExternOpNode::make(srcOp->name, srcOp->tag,
-                                      srcOp->axis, srcOp->inputs,
-                                      srcOp->input_placeholders,
-                                      srcOp->output_placeholders,
-                                      new_src_body);
-    }
-  } 
+  } else { // update kernels separately  
+    Stmt new_dest_body = destMutator.Mutate(destOp->body);
+    Stmt new_src_body = srcMutator.Mutate(srcOp->body);
+    dest->op = ExternOpNode::make(destOp->name, destOp->tag,
+                                  destOp->axis, destOp->inputs,
+                                  destOp->input_placeholders,
+                                  destOp->output_placeholders,
+                                  new_dest_body);
+    source->op = ExternOpNode::make(srcOp->name, srcOp->tag,
+                                    srcOp->axis, srcOp->inputs,
+                                    srcOp->input_placeholders,
+                                    srcOp->output_placeholders,
+                                    new_src_body);
+  }
 
   // update kernel call ops
   for (auto s : consumers) {
@@ -802,16 +805,25 @@ Tensor Schedule::move_to(const Tensor& target,
       if (const ExternOpNode* stage_op = s->op.as<ExternOpNode>()) {
         for (size_t j = 0; j < stage_op->inputs.size(); j++) {
           if (op->output_placeholders[0] == stage_op->input_placeholders[j]) {
+
             // find out the last usage of target tensor
             if (occurrence == 0) {
               min_pos = i + 1; 
+              consumers.push_back(s);
+              break;
+
+            // udpate minimal pos until hit occurrence
             } else if (use_count < occurrence) { 
-              // udpate minimal pos until hit occurrence
               min_pos = i + 1;
               use_count += 1; 
+              break;
+
+            // add stages after hitting the boundary 
+            } else if (occurrence > 1) {
+              consumers.push_back(s);
+              break;
             }
-            consumers.push_back(s);
-            break;
+
           }
         }
       }
@@ -831,7 +843,7 @@ Tensor Schedule::move_to(const Tensor& target,
                                             Expr(),
                                             consumer_name,
                                             "", 0, 0);
-  // sender consumes the data packets
+  // input target tensor and output channel buffer
   consumer_inputs.push_back(target);
   consumer_input_placeholders.push_back(target_buffer);
   consumer_output_placeholders.push_back(channel_buffer);
@@ -889,14 +901,17 @@ Tensor Schedule::move_to(const Tensor& target,
       "device_scope", sender_scope, consumer_body);
 
   // create new stage and return stream tensors 
-  Operation consumer_op = ExternOpNode::make(consumer_name, 
-                                             "",
-                                             consumer_axis,
-                                             consumer_inputs,
-                                             consumer_input_placeholders,
-                                             consumer_output_placeholders,
-                                             consumer_body);
+  Operation consumer_op = ExternOpNode::make(
+      consumer_name, 
+      "",
+      consumer_axis,
+      consumer_inputs,
+      consumer_input_placeholders,
+      consumer_output_placeholders,
+      consumer_body);
   Stage consumer_stage = Stage(consumer_op);
+  if (static_cast<PlaceType>(device_type) == devHost)
+    consumer_stage->device_type = devFPGA; 
   // insert sender before bound for (host,xcel <- host) case
   if (device_type == DeviceType::FPGA) {
     if (split_bound == 0) {
@@ -916,13 +931,15 @@ Tensor Schedule::move_to(const Tensor& target,
 
   // new buffer copy of original data 
   std::string producer_name = target_buffer->name + ".new";
-  Buffer output_buffer = BufferNode::make(Var(producer_name, Handle()),
-                                          target->dtype,
-                                          target->shape,
-                                          Array<Expr>(),
-                                          Expr(),
-                                          producer_name,
-                                          "", 0, 0);
+  Buffer output_buffer = BufferNode::make(
+      Var(producer_name, Handle()),
+      target->dtype,
+      target->shape,
+      Array<Expr>(),
+      Expr(),
+      producer_name,
+      "", 0, 0);
+  // producer writes into original target buffer
   producer_inputs.push_back(consumer_op.output(0));
   producer_input_placeholders.push_back(channel_buffer);
   producer_output_placeholders.push_back(target_buffer);
@@ -961,16 +978,18 @@ Tensor Schedule::move_to(const Tensor& target,
       VarExpr(target_buffer.node_),
       "device_scope", receiver_scope, for_stmt);
   // same buffer under different device scoep 
-  Tensor producer = ExternOpNode::make(target_buffer->name + ".new", 
-                                       "",
-                                       producer_axis,
-                                       producer_inputs,
-                                       producer_input_placeholders,
-                                       producer_output_placeholders,
-                                       body).output(0);
+  Tensor producer = ExternOpNode::make(
+      target_buffer->name + ".new", 
+      "",
+      producer_axis,
+      producer_inputs,
+      producer_input_placeholders,
+      producer_output_placeholders,
+      body).output(0);
 
   // recv stage creation + return tensor 
   Stage producer_stage = Stage(producer->op);
+  producer_stage->device_type = static_cast<PlaceType>(device_type); 
   size_t pos = FindNodeRef(stages, consumer_stage);
   // where to insert the streaming receiver
   if (split_bound == 0 || device_type == DeviceType::CPU) 
@@ -978,10 +997,14 @@ Tensor Schedule::move_to(const Tensor& target,
   else pos = split_bound; 
   stages->data.insert(stages->data.begin() + pos, producer_stage.node_);
   (*this)->stage_map.Set(producer->op, producer_stage);
+  // add producer as output stage if moved to host
+  if (static_cast<PlaceType>(device_type) == devHost) 
+    (*this)->outputs.push_back(producer->op);
 
   // update consumer stages with new tensor and buffer
   std::unordered_map<const Variable*, VarExpr> vsub;
-  // vsub[target_buffer->data.as<Variable>()] = producer_buffer->data;
+  // vsub[target_buffer->data.as<Variable>()] = 
+  //     producer_buffer->data;
   for (size_t i = 0; i < consumers.size(); i++) {
     Stage s = consumers[i];
     const ExternOpNode* op = s->op.as<ExternOpNode>();
@@ -991,15 +1014,27 @@ Tensor Schedule::move_to(const Tensor& target,
         "device_scope",
         receiver_scope,
         op->body);
+    Array<Tensor> new_inputs;
+    Array<Buffer> new_input_buffers;
+    for (size_t i = 0; i < op->inputs.size(); i++) {
+      // if (target == op->inputs[i]) continue;
+      new_inputs.push_back(op->inputs[i]);
+      new_input_buffers.push_back(op->input_placeholders[i]);
+    }
+    // new_inputs.push_back(producer);
+    // new_input_buffers.push_back(target_buffer);
     s->op = ExternOpNode::make(
         op->name,
         op->tag,
         op->axis,
-        op->inputs,
-        op->input_placeholders,
+        new_inputs, // op->inputs,
+        new_input_buffers, // op->input_placeholders,
         op->output_placeholders,
         body);
+    s->device_type = 
+        static_cast<PlaceType>(device_type); 
   }
+
   return producer;
 }
 

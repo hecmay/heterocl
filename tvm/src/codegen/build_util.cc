@@ -808,83 +808,109 @@ void GenHostCode(TVMArgs& args,
   CLWorld world = CLWorld(TARGET_DEVICE, CL_DEVICE_TYPE_ACCELERATOR);
   world.addProgram(kernelFile);
 )";
+  } else if (platform == "aocl") {
+    stream << R"(
+  // init opencl sdk platform
+  cl_int status;
+
+  printf("Initializing OpenCL\n");
+  if(!setCwdToExeDir()) {
+    return false;
   }
-  // generate host side (before kernel)
+
+  // Get the OpenCL platform.
+  platform = findPlatform("Intel(R) FPGA SDK for OpenCL(TM)\");
+  if(platform == NULL) {
+    printf("ERROR: Unable to find Intel(R) FPGA OpenCL platform.\n");
+    return false;
+  }
+
+  // Query the available OpenCL device.
+  device.reset(getDevices(platform, CL_DEVICE_TYPE_ALL, &num_devices));
+  printf("Platform: %s\n", getPlatformName(platform).c_str());
+  printf("Using %d device(s)\n", num_devices);
+  for(unsigned i = 0; i < num_devices; ++i) {
+    printf("  %s\n", getDeviceName(device[i]).c_str());
+  }
+
+  // Create the context.
+  context = clCreateContext(NULL, num_devices, device, &oclContextCallback, NULL, &status);
+  checkError(status, "Failed to create context");
+
+  // Create the program for all device. Use the first device by default 
+  std::string binary_file = getBoardBinaryFile("vector_add", device[0]);
+  printf("Using AOCX: %s\n", binary_file.c_str());
+  program = createProgramFromBinary(context, binary_file.c_str(), device, num_devices);
+
+  // Build the program that was just created.
+  status = clBuildProgram(program, 0, NULL, "", NULL, NULL);
+  checkError(status, "Failed to build program");
+
+  // Create per-device objects.
+  queue.reset(num_devices);
+  kernel.reset(num_devices);
+  n_per_device.reset(num_devices);
+
+  for(unsigned i = 0; i < num_devices; ++i) {
+    // Command queue.
+    queue[i] = clCreateCommandQueue(context, device[i], CL_QUEUE_PROFILING_ENABLE, &status);
+    checkError(status, "Failed to create command queue");
+
+    // Kernel.
+    const char *kernel_name = "vector_add";
+    kernel[i] = clCreateKernel(program, kernel_name, &status);
+    checkError(status, "Failed to create kernel");
+
+    // Determine the number of elements processed by this device.
+    n_per_device[i] = N / num_devices; // number of elements handled by this device
+
+    // Spread out the remainder of the elements over the first
+    // N % num_devices.
+    if(i < (N % num_devices)) {
+      n_per_device[i]++;
+    }
+
+#if USE_SVM_API == 0
+    // Input buffers.
+    input_a_buf[i] = clCreateBuffer(context, CL_MEM_READ_ONLY, 
+        n_per_device[i] * sizeof(float), NULL, &status);
+    checkError(status, "Failed to create buffer for input A");
+
+    input_b_buf[i] = clCreateBuffer(context, CL_MEM_READ_ONLY, 
+        n_per_device[i] * sizeof(float), NULL, &status);
+    checkError(status, "Failed to create buffer for input B");
+
+    // Output buffer.
+    output_buf[i] = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 
+        n_per_device[i] * sizeof(float), NULL, &status);
+    checkError(status, "Failed to create buffer for output");
+#else
+    cl_device_svm_capabilities caps = 0;
+
+    status = clGetDeviceInfo(
+      device[i],
+      CL_DEVICE_SVM_CAPABILITIES,
+      sizeof(cl_device_svm_capabilities),
+      &caps,
+      0
+    );
+    checkError(status, "Failed to get device info");
+
+    if (!(caps & CL_DEVICE_SVM_COARSE_GRAIN_BUFFER)) {
+      printf("The host was compiled with USE_SVM_API, however the device currently being targeted does not support SVM.\n");
+      // Free the resources allocated
+      cleanup();
+      return false;
+    }
+#endif /* USE_SVM_API == 0 */
+)";
+  }
+ 
+
   stream << "\n";
   PrintIndent(stream, indent);
   stream << "// compute and kernel call from host";
   stream << code << "\n";
-
-
-  // if (code.size() > 1) {
-  //   PrintIndent(stream, indent);
-  //   if (platform == "sdaccel") {
-  //     // create variable wrapper
-  //     stream << code[0] << "\n";
-  //     KernelInit(stream, platform, args,
-  //                arg_types, arg_names, added_args_num);
-
-  //   } else if (platform == "vivado_hls" || platform == "vivado" ||
-  //              platform == "sdsoc") {
-  //     // init hls stream channels 
-  //     for (size_t k = 0; k < arg_info.size(); k++) {
-  //       auto& info = arg_info[k]; 
-  //       PrintIndent(stream, indent);
-  //       // use hls::stream for pure vhls simulation
-  //       if (platform != "sdsoc" && info.streamed) {
-  //         stream << "hls::stream<" 
-  //                << Type2Str(Type2TVMType(info.type))
-  //                << "> " << "fd_" << info.name << ";\n";
-  //       } else { // use sdsoc_alloc
-  //         std::string size = "sizeof(" + 
-  //             Type2Str(Type2TVMType(info.type)) + ")*";
-  //         for (auto v : info.shape)
-  //           size += std::to_string(v) + "*";
-  //         size = size.substr(0, size.size()-1);
-  //         stream << Type2Str(Type2TVMType(info.type)) << "* " << "fd_" 
-  //                << info.name << " = (" << Type2Str(Type2TVMType(info.type)) << " *)" 
-  //                << "sds_alloc(" << size << ")" << ";\n";
-  //       }
-  //     }
-  //     PrintIndent(stream, indent);
-  //     stream << code[0] << "\n";
-
-  //     // create kernel call from host 
-  //     PrintIndent(stream, indent);
-  //     stream << "top(";
-  //     for (size_t i = 0; i < arg_info.size(); i++) {
-  //       auto& info = arg_info[i];
-  //       auto shape = info.shape;
-  //       if (i != 0) stream << ", ";
-  //       if (platform != "sdsoc" && 
-  //           shape.size() == 1 && shape[0] == 1) void(0);
-  //       else stream << "fd_"; // pass in continuous mem ptr 
-  //       stream << info.name;
-  //     }
-  //     stream << ");\n";
-  //   }
-
-  //   // generate host (post-kernel)
-  //   PrintIndent(stream, indent);
-  //   stream << "// compute after kernel function\n";
-
-  //   // alloc buffers for host undefined
-  //   for (int k = 0; k < added_args_num; k++) {
-  //     auto size = arg_info.size() - 1;
-  //     auto& info = arg_info[size-k];
-  //     PrintIndent(stream, indent);
-  //     stream << Type2Str(Type2TVMType(info.type)) << " "
-  //            << info.name << "[";
-  //     int mul = 1;
-  //     for (size_t j = 0; j < info.shape.size(); j++) 
-  //       mul *= info.shape[j];
-  //     stream << mul << "];\n";
-  //   }
-  //   stream << code[1];
-
-  // } else { // without 
-  //   stream << host_code;
-  // }
 
   // copy to shared mem
   for (int i = 0; i < args.size(); i++) {

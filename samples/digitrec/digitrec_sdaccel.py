@@ -72,11 +72,11 @@ def top(target=None):
 
     if target != "llvm": # streaming between kernels
         s.partition(train_images, factor=2)
-        s.to(train_images, target.xcel)
-        s.to(knn.sort_mat, target.host)
+        tx = s.to(train_images, target.xcel)
+        rx = s.to(knn.sort_mat, target.host)
         # s.to(knn.knn_mat, s[knn_sort], s[knn_update], hcl.Stream.FIFO)
 
-    # print(hcl.lower(s))
+    print(hcl.lower(s))
     return hcl.build(s, target=target)
 
 # offload = top("llvm")

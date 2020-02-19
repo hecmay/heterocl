@@ -810,6 +810,7 @@ class SplitDevice final : public IRMutator {
         }
       }
       return IRMutator::Mutate(s);
+
     } else {
       // TODO: allow device scope change in for stmt 
       if (s.as<For>() || s.as<LetStmt>() || s.as<IfThenElse>() ||
@@ -940,14 +941,30 @@ class SplitDevice final : public IRMutator {
 };
 
 // 1. add annotation to kernel def node 
+// 2. mutate the producer marked with .new 
 class KernelAnnotator final : public IRMutator {
  public:
   KernelAnnotator(
-    std::unordered_map<std::string, std::unordered_set<int>> map) :
-    arg_scope_map_(map) {} 
+    std::unordered_map<std::string, std::unordered_set<int>> map,
+    Array<NodeRef>& api_args) :
+    arg_scope_map_(map) {
+
+      for (size_t i = 0; i < api_args.size(); i++) {
+        if (api_args[i].as<BufferNode>()) {
+          Buffer buf(api_args[i].node_);
+          CHECK(buf->data.as<Variable>());
+          args.insert(buf->data.get());
+        } else { // as variable
+          auto v = api_args[i].as<Variable>();
+          CHECK(v) << "invalid input buf type";
+          args.insert(v);
+        }
+      }
+    } 
 
   // mark the kernel def (arg[pos] is in global scope)
   Stmt Mutate_(const KernelDef *op, const Stmt& s) final {
+    Stmt body = this->Mutate(op->body);
     if (arg_scope_map_.count(op->name)) {
       auto set = arg_scope_map_[op->name];
       Array<Expr> channels = op->channels;
@@ -960,13 +977,44 @@ class KernelAnnotator final : public IRMutator {
         }
       }
       return KernelDef::make(op->args, op->api_args, op->api_types, 
-                 op->body, op->ret_void, op->ret_type, op->name, channels);
+                 body, op->ret_void, op->ret_type, op->name, channels);
     }
     return s;
   }
 
+  // record the shape & type of allocated buffer
+  Stmt Mutate_(const Allocate *op, const Stmt& s) final {
+    auto v = op->buffer_var.get();
+    type_[v] = op->type;
+    shape_[v] = op->extents;
+    return IRMutator::Mutate_(op, s);
+  }
+
+  // create buffer on host if tensor allocated in xcel scope 
+  Stmt Mutate_(const ProducerConsumer *op, const Stmt& s) final {
+    if (op->is_producer &&
+        op->func->func_name().find(".new") != std::string::npos) {
+      if (auto attr = op->body.as<AttrStmt>()) {
+        if (attr->attr_key == attr::device_scope) {
+          if (attr->value.as<StringImm>()->value == "cpu" && 
+              !args.count(attr->node.as<Variable>())) {
+            auto v = attr->node.as<Variable>();
+            Stmt body = Allocate::make(VarExpr(attr->node.node_), type_[v], 
+                            shape_[v], make_const(Bool(type_[v].lanes()), true), op->body);
+            return AttrStmt::make(VarExpr(attr->node.node_), attr::storage_scope,
+                                  StringImm::make("global"), body);
+          }
+        }
+      }
+    }
+    return IRMutator::Mutate_(op, s); 
+  }
+
  private:
+  std::unordered_map<const Variable*, Type> type_;
+  std::unordered_map<const Variable*, Array<Expr>> shape_;
   std::unordered_map<std::string, std::unordered_set<int>> arg_scope_map_;
+  std::unordered_set<const Variable*> args;
 };
 
 Stmt InferStream(Stmt stmt,  
@@ -991,7 +1039,8 @@ Stmt InferStream(Stmt stmt,
                      /*kernel stmts*/grouper.kernel_stack).SplitScope(stmt);
 
   // mark kernel def with storage scope
-  stmt = KernelAnnotator(analyzer.kernel_arg_scope_).Mutate(stmt);
+  stmt = KernelAnnotator(analyzer.kernel_arg_scope_,
+                         api_args).Mutate(stmt);
   return stmt;
 }
 

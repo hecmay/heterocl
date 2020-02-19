@@ -382,10 +382,10 @@ def tune(s, func, target, workload=None):
     ut.config["test-limit"] = 5
     ut.tune(tuner=bandit(ut.config))
 
-def autosch(sch, func, target):
-    assert len(sch.placement) == 0, "placement not empty"
+def autosch(sch, func, target, plot=False):
+    # assert len(sch.placement) == 0, "placement not empty"
     from .auto_sch import auto_sch
-    auto_sch(sch, func, target)
+    auto_sch(sch, func, target, plot)
     print(sch); print(lower(sch)); import sys; sys.exit()
 
 ##############################################################################
