@@ -146,7 +146,7 @@ class Schedule(object):
         tensors : list of Tensor
             The tensors to be moved
 
-        dst : device or module 
+        dst : device or module
             The tensors to be moved
 
         stream_type : {FIFO, Channel, Burst}, optional
@@ -157,7 +157,7 @@ class Schedule(object):
         rets = []
         if not isinstance(tensors, list):
             tensors = [tensors]
-        for tensor in tensors: 
+        for tensor in tensors:
             try:
                 target = tensor.tensor
             except (AttributeError, ValueError):
@@ -329,7 +329,8 @@ class Stage(object):
                                     else Stage.get_current().name_with_prefix + "." + self.name
         # Private attributes for building a stage
         self._op = None
-        self._dtype = util.get_dtype(dtype, self.name_with_prefix)
+        self._hcl_dtype = util.get_dtype(dtype, self.name_with_prefix)
+        self._dtype = util.get_tvm_dtype(dtype, self.name_with_prefix)
         self._buf = tvm_api.decl_buffer(shape, self._dtype, self.name)
         self._shape = self._buf.shape
         # additional attributes
@@ -347,7 +348,7 @@ class Stage(object):
         # create the output operation
         input_ops = [i._op for i in self.input_stages]
         input_bufs = [i._buf for i in self.input_stages]
-        output_bufs = [self._buf] 
+        output_bufs = [self._buf]
         body = self.pop_stmt()
         Stage._current.pop()
         op = _ExternOp(self.name, "", self.axis_list, input_ops,
