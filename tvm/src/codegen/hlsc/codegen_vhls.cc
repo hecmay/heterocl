@@ -140,15 +140,8 @@ void CodeGenVivadoHLS::VisitStmt_(const Allocate* op) {
       }
       stream << ";\n";
       // pragmas associated with allocate 
-      for (auto& k : op->attrs) {
-        if (!k.as<StreamStmt>()) this->PrintStmt(k);
-      }
-
-    } else if (vid.find("c_buf_") != std::string::npos) { // register pipes
-      // if (!pipes.count(vid)) {
-      //   pipes[vid] = 1; 
-      //   decl_stream << "pipe int " << vid
-      //               << " __attribute__((xcl_reqd_pipe_depth(32)));\n"; 
+      // for (auto& k : op->attrs) {
+      //   if (!k.as<StreamStmt>()) this->PrintStmt(k);
       // }
     }
     buf_length_map_[buffer] = constant_size;
@@ -248,8 +241,8 @@ void CodeGenVivadoHLS::VisitStmt_(const Partition* op) {
 void CodeGenVivadoHLS::VisitExpr_(const StreamExpr* op, std::ostream& os) {
   CodeGenC::VisitExpr_(op, os);
   std::string vid = GetVarID(op->buffer_var.get());
-  vid = vid.substr(0, vid.find("_stream_send")); 
-  int channel_index = 0; Expr index_expr;
+  int channel_index = 0; 
+  Expr index_expr;
   for (size_t i = 0; i < op->annotate_keys.size(); i++) {
     auto key = op->annotate_keys[i].as<StringImm>()->value;
     if (key == "channel") {
@@ -269,14 +262,22 @@ void CodeGenVivadoHLS::VisitExpr_(const StreamExpr* op, std::ostream& os) {
 void CodeGenVivadoHLS::VisitStmt_(const StreamStmt* op) {
   std::string vid = GetVarID(op->buffer_var.get());
   switch (op->stream_type) {
-    case StreamType::Channel:
-      break;
     case StreamType::FIFO:
       PrintIndent();
       stream << "#pragma HLS stream variable="
              << vid << " depth=" << op->depth << "\n"; 
       break;
+    case StreamType::Channel:
+      PrintIndent();
+      stream << vid << " << ";
+      PrintExpr(op->value, stream);
+      stream << ";\n"; 
+      break;
     case StreamType::Pipe:
+      PrintIndent();
+      stream << vid << " << ";
+      PrintExpr(op->value, stream);
+      stream << ";\n"; 
       break;
   }
   // int channel_index = 0;

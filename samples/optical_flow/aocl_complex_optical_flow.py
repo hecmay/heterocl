@@ -12,8 +12,10 @@ sb = hcl.Struct({"fa": hcl.Int(32), "fb": hcl.Float(), "fc": hcl.Float()})
 sc = hcl.Struct({"fa": hcl.Int(8),  "fb": hcl.Float(), "fc": hcl.Float(),
                  "fd": hcl.Int(8),  "fe": hcl.Float(), "ff": hcl.Float()})
 
-tool = hcl.tool.aocl
-target = hcl.platform.aws_f1(tool)
+# tool = hcl.tool.sdaccel
+# target = hcl.platform.aws_f1(tool)
+# target.xcel.lang = "vhls"
+target = hcl.platform.aws_f1(hcl.tool.aocl)
 
 def optical_flow(target=target):
 
@@ -58,8 +60,13 @@ def optical_flow(target=target):
 
        @hcl.def_([size, size, size, size], dtypes=[dtype, dtype, dtype, sb])
        def grad_pack(grad_x, grad_y, grad_z, pack):
-           hcl.update(pack, lambda y, x: 
-               (grad_x[y, x], grad_y[y, x], grad_z[y, x]))
+           def update(y, x):
+               t = hcl.scalar(0, name="t", dtype=sb)
+               t.v.fa = grad_x[y, x]
+               t.v.fb = grad_y[y, x]
+               t.v.fc = grad_z[y, x]
+               pack[y, x] = t.v 
+           hcl.mutate((size), lambda y, x: update(y, x))
 
        @hcl.def_([size, size])
        def grad_weight_y(pack, y_filt):
@@ -75,11 +82,14 @@ def optical_flow(target=target):
            g_f = hcl.copy([0.0755, 0.133, 0.1869, 0.2903, \
                            0.1869, 0.133, 0.0755], "g_f", hcl.Float())
            rd = hcl.reduce_axis(0, 7, name="rd")
-           def acc(y, x):
-               filt_grad[y, x] = hcl.select(
-                   hcl.and_(x>=3, x<width-3), 
-                       sum(y_filt[y, x+rd-3] * g_f[rd], axis=rd), 0)
-           hcl.mutate(filt_grad.shape, lambda y, x: acc(y, x))
+           def update(y, x):
+               filt_grad[y, x+3] = sum(y_filt[y,x+rd] * g_f[rd], axis=rd)
+           hcl.mutate((height, width-6), lambda y, x: update(y, x))
+           # def acc(y, x):
+           #     filt_grad[y, x] = hcl.select(
+           #         hcl.and_(x>=3, x<width-3), 
+           #             sum(y_filt[y, x+rd-3] * g_f[rd], axis=rd), 0)
+           # hcl.mutate(filt_grad.shape, lambda y, x: acc(y, x))
 
        @hcl.def_([size, size], dtypes=[sb, sc])
        def outer_product(filt_grad, out_product):
@@ -117,12 +127,13 @@ def optical_flow(target=target):
            with hcl.for_(0, height, name="r") as r:
              with hcl.for_(0, width, name="c") as c:
                with hcl.if_(hcl.and_(r>=2, r<height-2, c>=2, c<width-2)):
-                 a = hcl.scalar(tensor[r,c].fa, "a")
-                 b = hcl.scalar(tensor[r,c].fb, "b")
-                 c = hcl.scalar(tensor[r,c].fc, "c")
-                 d = hcl.scalar(tensor[r,c].fd, "d")
-                 e = hcl.scalar(tensor[r,c].fe, "e")
-                 f = hcl.scalar(tensor[r,c].ff, "f")
+                 t = hcl.scalar(tensor[r,c], dtype=sc)
+                 a = hcl.scalar(t.v.fa, "a")
+                 b = hcl.scalar(t.v.fb, "b")
+                 c = hcl.scalar(t.v.fc, "c")
+                 d = hcl.scalar(t.v.fd, "d")
+                 e = hcl.scalar(t.v.fe, "e")
+                 f = hcl.scalar(t.v.ff, "f")
                  s = hcl.scalar(a.v*b.v-d.v*d.v, "denom")
                  output[r,c].fa = (e.v * d.v - b.v * e.v) / s.v
                  output[r,c].fb = (e.v * d.v - e.v * a.v) / s.v
@@ -169,20 +180,25 @@ def optical_flow(target=target):
     ktx = kernel.tensor_weight_x
     kfc = kernel.flow_calc
 
-    s.reuse_at(kgx.input_image, s[kgx], kgx.axis[1])
     s.reuse_at(kgy.input_image, s[kgy], kgy.axis[0])
-    # s.reuse_at(kwy.pack, s[kwy], kwy.axis[0])
+    s.reuse_at(kgx.input_image, s[kgx], kgx.axis[1])
 
-    s.to(kernel.grad_y, s[kpc], s[kgy])
-    s.to(kernel.grad_x, s[kpc], s[kgx])
-    s.to(kernel.grad_z, s[kpc], s[kgz])
-    s.to(kernel.pack,   s[kwy], s[kpc])
+    s.reuse_at(kwy.pack, s[kwy], kwy.axis[0])
+    s.reuse_at(kwx.y_filt, s[kwx], kwx.axis[1])
 
-    s.to(kernel.y_filt, s[kwx], s[kwy])
-    s.to(kernel.filt_grad, s[kop], s[kwx])
+    s.reuse_at(ktx.tensor_y, s[ktx], ktx.axis[0])
+    s.reuse_at(kty.out_product, s[kty], kty.axis[0])
 
-    s.to(kernel.out_product, s[kty], s[kop])
-    s.to(kernel.tensor_y, s[ktx], s[kty])
+    # s.to(kernel.grad_y, s[kpc], s[kgy])
+    # s.to(kernel.grad_x, s[kpc], s[kgx])
+    # s.to(kernel.grad_z, s[kpc], s[kgz])
+    # s.to(kernel.pack,   s[kwy], s[kpc])
+
+    # s.to(kernel.y_filt, s[kwx], s[kwy])
+    # s.to(kernel.filt_grad, s[kop], s[kwx])
+
+    # s.to(kernel.out_product, s[kty], s[kop])
+    # s.to(kernel.tensor_y, s[ktx], s[kty])
     s.to(kernel.tensor, s[kfc], s[ktx])
 
     return hcl.build(s, target)

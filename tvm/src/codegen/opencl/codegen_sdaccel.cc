@@ -133,6 +133,16 @@ void CodeGenSDACCEL::VisitStmt_(const For* op) {
       if (auto e = st->value.as<StreamExpr>()) {
         if (e->buffer_var.get()->name_hint.find("channel")
             != std::string::npos) return;
+      } else { // ignore the initilization 
+        auto value = st->value;
+        if (auto c = value.as<Cast>()) value = c->value;
+        if (auto v = value.as<IntImm>()) {
+          if (v->value == 0) return;
+        } else if (auto v = value.as<FloatImm>()) {
+          if (v->value == 0) return;
+        } else if (auto v = value.as<UIntImm>()) {
+          if (v->value == 0) return;
+        }
       }
     }
   }
@@ -287,7 +297,8 @@ void CodeGenSDACCEL::VisitStmt_(const Allocate* op) {
 }
 
 void CodeGenSDACCEL::VisitStmt_(const StreamStmt* op) {
-  std::string vid = GetVarID(op->buffer_var.get());
+  const Variable* v = op->buffer_var.get();
+  std::string vid = GetVarID(v);
   PrintIndent();
   switch (op->stream_type) {
     case StreamType::FIFO:
@@ -299,7 +310,10 @@ void CodeGenSDACCEL::VisitStmt_(const StreamStmt* op) {
 
     // declare outside def 
     case StreamType::Pipe:
-      stream << "int temp_out = "; 
+      CHECK(handle_data_type_.count(v)) 
+        << "not found data type of " << v->name_hint;
+      PrintType(handle_data_type_[v], stream);
+      stream << " temp_out = "; 
       PrintExpr(op->value, stream);
       stream << ";\n";
       PrintIndent();
@@ -308,7 +322,15 @@ void CodeGenSDACCEL::VisitStmt_(const StreamStmt* op) {
       break;
 
     case StreamType::Channel:
-      LOG(FATAL) << "not support channel in sdaccel";
+      CHECK(handle_data_type_.count(v)) 
+        << "not found data type of " << v->name_hint;
+      PrintType(handle_data_type_[v], stream);
+      stream << " temp_out = "; 
+      PrintExpr(op->value, stream);
+      stream << ";\n";
+      PrintIndent();
+      stream << "write_pipe_block(" << vid
+             << ", " << "&temp_out);\n";
       break;
   }
 }

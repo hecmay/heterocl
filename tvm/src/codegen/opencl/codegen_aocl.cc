@@ -255,7 +255,7 @@ void CodeGenAOCL::VisitStmt_(const For* op) {
         if (e->buffer_var.get()->name_hint.find("channel")
             != std::string::npos) return;
 
-      } else {// ignore the initilization 
+      } else { // ignore the initilization 
         auto value = st->value;
         if (auto c = value.as<Cast>()) value = c->value;
         if (auto v = value.as<IntImm>()) {
