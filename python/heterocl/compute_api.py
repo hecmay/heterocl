@@ -3,13 +3,13 @@
 import numbers
 import numpy as np
 from collections import OrderedDict
-from .tvm import expr as _expr, stmt as _stmt, make as _make
+from .tvm import expr as _expr, stmt as _stmt, make as _make, tensor as _tensor
 from .tvm.api import _IterVar, min_value, decl_buffer, const
-from .util import get_index, get_name, get_type, get_tvm_dtype, make_for, CastRemover
+from .util import get_index, get_name, get_dtype, get_type, get_tvm_dtype, make_for, CastRemover
 from .tensor import Scalar, Tensor, TensorSlice
 from .types import Struct, dtype_to_str
 from .schedule import Stage
-from .debug import APIError
+from .debug import APIError, TensorError
 from .dsl import if_, for_
 from .mutator import Mutator
 from .module import Module
@@ -115,17 +115,21 @@ def compute_body(name,
     return_tensor = True if tensor is None else False
 
     # attach to superstage
-    if Stage.get_len() > 0 and \
-       Stage._current[-1]._module and \
-       shape != (1,): # cannot handle scalar
+    if Stage.get_len() > 0 and Stage._current[-1]._module: 
         stage = Stage._current[-1]
 
         # create tensor and add to replace list
         if not return_tensor: # modified 
             stage.input_stages.add(tensor.last_update)
-        else: # return new tensor with stage buffer
-            buf = decl_buffer(shape, stage._dtype, name)
-            tensor = Tensor(shape, stage._dtype, name, buf)
+        else: # create new buffer for hcl.compute
+            hcl_dtype_ = get_dtype(dtype) 
+            dtype_ = get_tvm_dtype(dtype)
+            buf = decl_buffer(shape, dtype_, name)
+            tensor = Tensor(shape, hcl_dtype_, name, buf)
+
+        buffer_var = tensor._buf.data
+        dtype = tensor.dtype
+        shape = tensor.shape
 
         stage.stmt_stack.append([])
         ret = fcompute(*var_list) # return from lambda
@@ -158,10 +162,34 @@ def compute_body(name,
             if non_reduce_ivs:
                 stmt = make_for(non_reduce_ivs, stmt, 0)
 
+          elif isinstance(ret, (tuple, list)):
+            indices = lambda_ivs
+            index, _, _ = get_index(shape, indices, 0)
+            hcl_dtype = tensor.hcl_dtype
+            if not isinstance(hcl_dtype, Struct):
+                raise TensorError("Cannot assign a tuple/list to a non-struct-type tensor")
+            start = 0
+            end = 0
+            for sdtype, expr in zip(hcl_dtype.dtype_dict.values(), ret):
+                end = start + sdtype.bits
+                sdtype = dtype_to_str(sdtype)
+                load = _make.Load(dtype, buffer_var, index)
+                expr = _make.Cast(sdtype, expr)
+                if get_type(sdtype) != "uint":
+                    ty = "uint" + str(get_type(sdtype)[1])
+                    expr = _make.Call(ty, "bitcast", [expr], _expr.Call.PureIntrinsic, None, 0)
+                expr = _make.SetSlice(load, expr, end, start)
+                stage.emit(_make.Store(buffer_var,
+                                       _make.Cast(dtype, expr),
+                                       index))
+                start = end
+            stmt = make_for(indices, stage.pop_stmt(), 0)
+
           elif isinstance(ret, (TensorSlice, Scalar, _expr.Expr, numbers.Number)):
             stage.emit(_make.Store(tensor._buf.data, 
                        _make.Cast(stage._dtype, ret), index))
             stmt = make_for(indices, stage.pop_stmt(), 0)
+
         else: # update 
           stmt = stage.pop_stmt()
           stage.emit(ReplaceReturn(tensor._buf.data, 
@@ -172,6 +200,7 @@ def compute_body(name,
         assert len(stage._inputs) > 0, "cannot find tvm inputs"
         names = [_.name.split(".")[-1] for _ in stage._inputs]
         if tensor.name.replace(stage.name + ".", "") not in names: 
+          stage.var_dict[tensor.name] = tensor;
           stmt = _make.Allocate(
               tensor._buf.data, stage._dtype, tensor.shape, 
               const(1, dtype="uint1"), stmt, [])

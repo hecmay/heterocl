@@ -401,15 +401,18 @@ def def_(shapes, dtypes=None, ret_dtype=None, name=None, arg_names=None):
             # prepare names
             new_names = [s.name_with_prefix + "." + name_ for name_ in names]
             # prepare dtypes
+            hcl_dtypes = []
             if dtypes is None:
                 dtypes = []
                 for name_ in new_names:
                     dtypes.append(util.get_tvm_dtype(None, name_))
+                    hcl_dtypes.append(util.get_dtype(None, name_))
             elif isinstance(dtypes, list):
                 if len(dtypes) != nargs:
                     raise APIError("The number of data types does not match the of arguments")
                 for (name_, dtype_) in zip(new_names, dtypes):
                     dtypes.append(util.get_tvm_dtype(dtype_, name_))
+                    hcl_dtypes.append(util.get_dtype(dtype_, name_))
                 dtypes = dtypes[int(len(dtypes)/2):]
             else:
                 dtype = util.get_tvm_dtype(dtypes)
@@ -421,7 +424,7 @@ def def_(shapes, dtypes=None, ret_dtype=None, name=None, arg_names=None):
             inputs = []
             inputs_tvm = []
             arg_shapes, arg_dtypes = [], []
-            for shape, name_, dtype in zip(shapes, new_names, dtypes):
+            for shape, name_, dtype, htype in zip(shapes, new_names, dtypes, hcl_dtypes):
                 if shape == ():
                     var_ = placeholder((), name_, dtype)
                     inputs.append(var_)
@@ -429,7 +432,7 @@ def def_(shapes, dtypes=None, ret_dtype=None, name=None, arg_names=None):
                     arg_shapes.append([1])
                     arg_dtypes.append(dtype)
                 else: # tensor inputs (new bufs)
-                    placeholder_ = placeholder(shape, name_, dtype)
+                    placeholder_ = placeholder(shape, name_, htype)
                     inputs.append(placeholder_)
                     inputs_tvm.append(placeholder_.buf.data)
                     arg_shapes.append(list(shape))

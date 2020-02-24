@@ -1,5 +1,4 @@
 import heterocl as hcl
-import hlib
 import numpy as np
 import os, sys
 from PIL import Image

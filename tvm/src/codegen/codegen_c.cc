@@ -144,7 +144,7 @@ std::string CodeGenC::GetHost() {
 }
 
 std::string CodeGenC::GetDevice() {
-  return decl_stream.str() + module_stream.str(); 
+  return decl_stream.str() + "\n" + module_stream.str(); 
 }
 
 std::string CodeGenC::Finish() {
@@ -152,9 +152,9 @@ std::string CodeGenC::Finish() {
   if (fpga_scope_) device << stream.str();
   else host_stream << stream.str(); 
   device << "}\n";
-  return decl_stream.str() + "\n{device}\n" + 
-         module_stream.str() + device.str() + "\n{device}\n" + 
-         "\n{host}\n" + host_stream.str() + "\n{host}\n";
+  return decl_stream.str() + 
+         module_stream.str() + device.str() + 
+         host_stream.str();
 }
 
 void CodeGenC::PrintExpr(const Expr& n, std::ostream& os) {  // NOLINT(*)

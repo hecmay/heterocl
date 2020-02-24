@@ -137,7 +137,7 @@ class Schedule(object):
         return self.sch.reuse_at(target, parent, axis, name)
 
     def to(self, tensors, dst, src=None,
-           stream_type=_expr.StreamExpr.Pipe, 
+           stream_type=_expr.StreamExpr.Channel, 
            depth=1, name=None, occ=0):
         """Stream a list of Tensors to dst devices 
         
@@ -348,7 +348,7 @@ class Stage(object):
         # create the output operation
         input_ops = [i._op for i in self.input_stages]
         input_bufs = [i._buf for i in self.input_stages]
-        output_bufs = [self._buf]
+        output_bufs = [self._buf] 
         body = self.pop_stmt()
         Stage._current.pop()
         op = _ExternOp(self.name, "", self.axis_list, input_ops,

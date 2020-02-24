@@ -122,9 +122,6 @@ class AccessCollector : public ir::IRMutator {
   Expr Mutate_(const Load* op, const Expr& e) {
     std::string target_name = op->buffer_var.get()->name_hint;
     // check if buffer matches
-    LOG(INFO) << "--------------";
-    LOG(INFO) << op->buffer_var.get()->name_hint;
-    LOG(INFO) << op->buffer_var.get() << ":" << target_buf_.get();
     if (op->buffer_var.get() == target_buf_.get()) {
       load_num += 1; 
       load_var = VarExpr(op->buffer_var.node_);
@@ -546,8 +543,8 @@ class KernelUpdater final : public IRMutator {
                                 type_, channel_depth_);
 
         } else { // invalid target
-          LOG(FATAL) << "target variable " << target_ << " not found; "
-                     << "schedule does not apply";
+          LOG(FATAL) << "target variable " << target_ << " not found in "
+                     << op->name << "; schedule does not apply";
         }
       }
 

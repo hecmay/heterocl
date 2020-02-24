@@ -460,3 +460,26 @@ def test_module_reducer():
     ret_B = hcl_B.asnumpy()
 
     ret_A.sort(axis = 1)
+
+
+def test_def_module():
+    hcl.init()
+
+    def kernel(A, B):
+    
+        @hcl.def_([(10,10), (10,10)])
+        def sreduce(A, B):
+            init = hcl.compute((10,), lambda x: 11)
+            hcl.update(B, lambda y, x: init[y, x])
+    
+        sreduce(A, B)
+
+    A = hcl.placeholder((10, 10))
+    B = hcl.placeholder((10, 10))
+    s = hcl.create_schedule([A, B], kernel)
+
+    f = hcl.build(s)
+    print(hcl.lower(s))
+
+test_def_module()
+    

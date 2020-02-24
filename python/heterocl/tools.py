@@ -102,7 +102,7 @@ option_table = {
     "tdc_aggressive_hold_closure_effort" : ['On', 'Off'],
     "allow_register_retiming" : ['On', 'Off']}),
 
-  "aocl" : ("emu", {"version" : "17.0",
+  "aocl" : ("sw_emu", {"version" : "17.0",
                     "clock" : "1.5",
                     })
 }
