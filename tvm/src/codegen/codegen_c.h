@@ -24,12 +24,6 @@ namespace codegen {
 
 template<class T, class V>
 using str2tupleMap = std::unordered_map<std::string, std::tuple<T, V>>;
-struct argEntry {
-  std::string name;
-  Type type;
-  std::vector<int> shape;
-};
-using var2nameType = std::unordered_map<const Variable*, argEntry>; 
 
 Type String2Type(std::string& s);
 std::string getIndex(std::vector<int> shape);
@@ -197,23 +191,8 @@ class CodeGenC :
   std::map<const Variable*, Array<Expr> > var_shape_map_save;
   std::unordered_map<const Variable*, Expr> range_save;
 
-  // index into ap_arg_type
-  size_t arg_count{0};
-  // map {var : (vid, Type, shape)}
-  var2nameType arg_top_vars;
-  // vector {vars} in top function 
-  std::vector<const Variable*> arg_vars;
-  // vector of top function arg dimension 
-  std::vector<std::vector<int>> arg_shapes;
-  // whether the function arg is streamed
-  std::unordered_map<const Variable*, bool> stream_table;
-  // xcel defined & host used vars
-  std::unordered_map<int, Array<Var>> host_undefined;
-  // host defined & xcel used vars
-  std::unordered_map<int, Array<Var>> xcel_undefined;
-  // pre and post processing device code
-  virtual void PreProcess(std::ostringstream& os) {};
-  virtual void PostProcess(std::ostringstream& os) {};
+  // top function argument names 
+  std::vector<std::string> arg_names;
 
  protected:
   void SaveFuncState(LoweredFunc f);

@@ -330,6 +330,7 @@ void PrintCopyBack(TVMArray* arr,
 // generate kernel code into files 
 void GenKernelCode(std::string& test_file, 
                    std::string platform, std::string backend) {
+  if (test_file.find_first_not_of(" \t\n") == std::string::npos) return;
   std::ofstream stream;
   std::string kernel_ext = "cpp";
   if (platform == "sdaccel" && backend == "sdaccel") 
@@ -384,175 +385,6 @@ void GenKernelCode(std::string& test_file,
   stream.close();
 }
 
-// memory and control interface 
-void GenWrapperCode(TVMArgs& args,
-                 const std::vector<int>& shmids,
-                 const std::vector<TVMType>& arg_types,
-                 argInfo& arg_info,
-                 LoweredFunc func) {
-  std::ofstream stream;
-  int indent = 0;
-  std::string path(getenv("PWD"));
-  stream.open("__tmp__/interface.cpp");
-  stream << "#include <stdio.h>\n";
-  stream << "#include \"" + path + "/__tmp__/kernel.cpp\"\n";
-  stream << "\n\n";
-  stream << "extern \"C\" \n";
-  stream << "{\n";
-  indent += 2;
-  PrintIndent(stream, indent);
-
-  // wrapper func for FPGA kernel
-  stream << "void App( ";
-  for (size_t i = 0; i < arg_types.size(); i++) {
-    if (i != 0) stream << ", ";
-    stream << Type2WrapStr(arg_types[i]);
-    stream << "*";
-    stream << " source_wrapper_" << i;
-  }
-  stream << " ) {\n";
-
-  // memeory and control pragma 
-  for (int i = 0; i < args.size(); i++) {
-    std::string interface = " m_axi ";
-    PrintIndent(stream, indent);
-    stream << "#pragma HLS INTERFACE" + interface + "port=";
-    stream << "source_wrapper_" << i;
-    stream << " offset=slave bundle=gmem\n";
-  }
-  for (int i = 0; i < args.size(); i++) {
-    std::string interface = " s_axilite ";;
-    PrintIndent(stream, indent);
-    stream << "#pragma HLS INTERFACE" + interface + "port=";
-    stream << "source_wrapper_" << i;
-    stream << " bundle=control\n";
-  }
-  PrintIndent(stream, indent);
-  stream << "#pragma HLS INTERFACE s_axilite port=return bundle=control\n";
-  stream << "\n";
-
-  // variable init memory alloc 
-  for (int i = 0; i < args.size(); i++) {
-    PrintIndent(stream, indent);
-    stream << Type2WrapStr(arg_types[i]);
-    stream << " source_wrapper_temp_" << i;
-    // var shape & alloc size
-    if (args[i].type_code() == kArrayHandle) {
-      TVMArray* arr = args[i];
-      auto shape = GetShape(arr);
-      for (size_t j = 0; j < shape.size(); j++) 
-        stream << "[" << shape[j] << "]";
-    } else {
-      stream << "[1]";
-    }
-    // if (shape.size() == 0) stream << "[1]";
-    stream << ";\n";
-  }
-
-  // move data from shared memory to temp
-  for (int i = 0; i < args.size(); i++) {
-    std::vector<int> shape;
-    if (args[i].type_code() == kArrayHandle) {
-      TVMArray* arr = args[i];
-      shape = GetShape(arr);
-    } 
-
-    for (size_t j = 0; j < shape.size(); j++) {
-      PrintIndent(stream, indent);
-      stream << "for (int i" << j << " = 0; ";
-      stream << "i" << j << " < " << shape[j] << "; ";
-      stream << "i" << j << "++) {\n";
-      indent += 2;
-      if (j == shape.size() - 1) {
-        PrintIndent(stream, indent);
-        stream << "source_wrapper_temp_" << i;
-        for (size_t k = 0; k < shape.size(); k++) {
-          stream << "[i" << k << "]";
-        }
-        stream << " = ";
-        stream << "source_wrapper_" << i;
-        stream << "[i" << shape.size() - 1;
-        int mul = 1;
-        for (size_t k = shape.size() - 1; k > 0; k--) {
-          mul *= shape[k];
-          stream << "+ i" << k - 1 << "*" << mul;
-        }
-        stream << "];\n";
-      }
-    }
-    for (size_t j = 0; j < shape.size(); j++) {
-      indent -= 2;
-      PrintIndent(stream, indent);
-      stream << "}\n";
-    }
-    if (shape.size() == 0) {
-      PrintIndent(stream, indent);
-      stream << "source_wrapper_temp_" << i;
-      stream << "[0] = source_wrapper_" << i << "[0];\n";
-    }
-  }
-
-  // print top func
-  stream << "\n";
-  PrintIndent(stream, indent);
-  stream << "top_function_0(";
-  for (int i = 0; i < args.size(); i++) {
-    if (i != args.size() - 1){
-      stream << "source_wrapper_temp_" << i;
-      stream << ", ";
-    } else {
-      stream << "source_wrapper_temp_" << i;
-      stream << ");\n";
-    }
-
-  }
-  stream << "\n";
-
-  // read back return val
-  for (int k = args.size() - 1; 
-       k > args.size() - 2; k--) {
-    std::vector<int> shape;
-    if (args[k].type_code() == kArrayHandle) {
-      TVMArray* arr = args[k];
-      shape = GetShape(arr);
-    } 
-    for (size_t i = 0; i < shape.size(); i++) {
-      PrintIndent(stream, indent);
-      stream << "for (int i" << i << " = 0; ";
-      stream << "i" << i << " < " << shape[i] <<  "; ";
-      stream << "i" << i << "++) {\n";
-      indent += 2;
-    
-      if (i == shape.size() - 1) {
-        PrintIndent(stream, indent);
-        stream << "source_wrapper_" << k;
-        stream << "[i" << shape.size() - 1;
-        int mul = 1;
-        for (size_t j = shape.size() - 1; j > 0; j--) {
-          mul *= shape[j];
-          stream << " + i" << j - 1 << "*" << mul;
-        }
-        stream << " ] = ";
-    
-        stream << "source_wrapper_temp_" << k;
-        for (size_t j = 0; j < shape.size(); j++) {
-          stream << "[i" << j << "]";
-        }
-        stream <<";\n";
-      }
-    }
-    for (size_t i = 0; i < shape.size(); i++) {
-        indent -= 2;
-        PrintIndent(stream, indent);
-        stream << "}\n";
-    }
-  }
-  stream << "}\n";
-  indent -= 2;
-  stream << "}\n";
-  stream.close();
-}
-
 // generate opencl wrapper for sdaccel sim
 void GenHostHeaders(std::ofstream& stream,
                     std::string platform) {
@@ -594,138 +426,15 @@ void GenHostHeaders(std::ofstream& stream,
   }
 }
 
-// initialization before executing kernel 
-void KernelInit(std::ofstream& stream,
-                std::string platform,
-                TVMArgs& args, 
-                const std::vector<TVMType>& arg_types,
-                std::vector<std::string> arg_names,
-                int added_args_num) {
-  int indent = 2;
-  stream << R"(
-  // parse command line arguments for opencl version 
-  std::string kernelFile("");
-  parse_sdaccel_command_line_args(argc, argv, kernelFile);
-
-  // create OpenCL world
-  CLWorld world = CLWorld(TARGET_DEVICE, CL_DEVICE_TYPE_ACCELERATOR);
-
-  // add the bitstream file
-  world.addProgram(kernelFile);
- 
-  // create kernels
-  CLKernel App(world.getContext(), world.getProgram(), "top_function_0", world.getDevice());
-
-)";
-
-  PrintIndent(stream, indent);
-  stream << "// create mem objects\n";
-  for (int i = 0; i < args.size(); i++) {
-    if (args[i].type_code() == kArrayHandle) {
-      PrintIndent(stream, indent);
-      stream << "CLMemObj source_" << i;
-      stream << "((void*)" << arg_names[i];
-      stream << ", sizeof(" << Type2Byte(arg_types[i]) << "), ";
-
-      TVMArray* arr = args[i];
-      for (int j = 0;j < arr->ndim;j++) {
-        if (j==0) {
-          stream << arr->shape[j] << " ";
-        } else {
-          stream << "* " << arr->shape[j];
-        }
-      }
-      stream << ", ";
-      stream << "CL_MEM_READ_WRITE);\n";
-    }
-  }
-
-  stream << "\n";
-  PrintIndent(stream, indent);
-  stream << "// add them to the world\n";
-  for (int i = 0; i < args.size();i++) {
-    if (args[i].type_code() == kArrayHandle) {
-      PrintIndent(stream, indent);
-      stream << "world.addMemObj(source_" << i;
-      stream << ");\n";
-    }
-  }
-
-  stream << R"(
-  // set work size
-  int global_size[3] = {1, 1, 1};
-  int local_size[3] = {1, 1, 1};
-  App.set_global(global_size);
-  App.set_local(local_size);
-
-  // add them to the world
-  world.addKernel(App);
-
-  // set kernel arguments
-)";
-
-  // TODO: push arg-mem setups to codegen  
-  if (args.size() == 3) { // digitrec
-    stream << R"(
-  world.setIntKernelArg(0, 1, test_image);
-  world.setMemKernelArg(0, 0, 0);
-  world.setMemKernelArg(0, 2, 1);
-)"; } else { // optical flow 
-    for (int i = 0; i < args.size(); i++)
-      stream << "  world.setMemKernelArg(0, " 
-             << i << ", " << i << ");\n";
-  }
-
-  stream << "\n";
-  PrintIndent(stream, indent);
-  stream << "// run\n";
-  PrintIndent(stream, indent);
-  stream << "world.runKernels();\n\n";
-  PrintIndent(stream, indent);
-  stream << "// read the data back\n";
-  PrintIndent(stream, indent);
-
-  // TODO: push arg-mem setups to codegen  
-  if (args.size() == 3) { // digitrec
-    stream << "world.readMemObj(1);\n";
-  } else {
-    for (int i = 0; i < args.size(); i++)
-      stream << "  world.readMemObj("<< i << ");\n";
-  }
-}
-
 // separate host code into partitions 
-std::string SplitHostCode(std::string host_code,
-    std::vector<std::string>& names) {
+std::string SplitHostCode(std::string host_code) {
   // extract the top arg name 
   size_t pos = host_code.find("default_function");
-  auto func_ = host_code.substr(0, host_code.find('\n', pos)); 
-  std::regex e(R"(\s(\w+?)(,|\)))");
-  std::sregex_iterator iter(func_.begin(), func_.end(), e);
-  std::sregex_iterator end;
-  while(iter != end) {
-    CHECK(iter->size() > 0) << "cannot find arg top";
-    names.push_back((*iter)[1]);
-    ++iter;
-  }
-  // separate the host code with delimiter  
-  // std::string delimiter = "top_function_";
-  // size_t func_pos = 0;
-  // std::vector<std::string> segments;
-  host_code = host_code.substr(host_code.find('\n', pos) + 1);
-  // while ((func_pos = host_code.find(delimiter)) != std::string::npos) {
-  //   auto seg = host_code.substr(0, func_pos);
-  //   if (seg.find_first_not_of(' ') != std::string::npos) {
-  //     seg = seg.substr(seg.find_first_not_of(' '));
-  //     segments.push_back(seg);
-  //   } else { segments.push_back("\n"); }
-  //   host_code.erase(0, host_code.find(';', func_pos));
-  // }
-  auto begin = host_code.find("\n");
+  host_code = host_code.substr(host_code.find("{", pos) + 1);
+  auto begin = host_code.find_first_not_of(" \t\n");
   auto length = host_code.rfind("}") - begin;
   host_code = host_code.substr(begin, length);
-  // segments.push_back(host_code);
-  return host_code;
+  return "\n  " + host_code;
 }
 
 // generate host code according to platform type
@@ -733,14 +442,13 @@ void GenHostCode(TVMArgs& args,
                  const std::vector<int>& shmids,
                  const std::vector<TVMType>& arg_types,
                  LoweredFunc lowered_func,std::string platform,
-                 std::string host_code, argInfo& arg_info,
-                 int added_args_num) {
+                 std::string host_code, 
+                 std::vector<std::string> arg_names) {
   int indent = 0;
   std::ofstream stream;
   stream.open("__tmp__/host.cpp");
   GenHostHeaders(stream, platform);
-  std::vector<std::string> arg_names;
-  auto code = SplitHostCode(host_code, arg_names); 
+  auto code = SplitHostCode(host_code); 
   CHECK((signed)arg_names.size() == args.size());
 
   stream << "int main(int argc, char ** argv) {\n";
@@ -905,7 +613,6 @@ void GenHostCode(TVMArgs& args,
 #endif /* USE_SVM_API == 0 */
 )";
   }
- 
 
   stream << "\n";
   PrintIndent(stream, indent);

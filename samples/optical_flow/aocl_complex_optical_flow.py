@@ -12,10 +12,10 @@ sb = hcl.Struct({"fa": hcl.Int(32), "fb": hcl.Float(), "fc": hcl.Float()})
 sc = hcl.Struct({"fa": hcl.Int(8),  "fb": hcl.Float(), "fc": hcl.Float(),
                  "fd": hcl.Int(8),  "fe": hcl.Float(), "ff": hcl.Float()})
 
-# tool = hcl.tool.sdaccel
-# target = hcl.platform.aws_f1(tool)
-# target.xcel.lang = "vhls"
-target = hcl.platform.aws_f1(hcl.tool.aocl)
+tool = hcl.tool.sdaccel
+target = hcl.platform.aws_f1(tool)
+target.xcel.lang = "vhls"
+# target = hcl.platform.aws_f1(hcl.tool.aocl)
 
 def optical_flow(target=target):
 
@@ -135,8 +135,10 @@ def optical_flow(target=target):
                  e = hcl.scalar(t.v.fe, "e")
                  f = hcl.scalar(t.v.ff, "f")
                  s = hcl.scalar(a.v*b.v-d.v*d.v, "denom")
-                 output[r,c].fa = (e.v * d.v - b.v * e.v) / s.v
-                 output[r,c].fb = (e.v * d.v - e.v * a.v) / s.v
+                 r = hcl.scalar(0, dtype=sa)
+                 r.v.fa = (e.v * d.v - b.v * e.v) / s.v
+                 r.v.fb = (e.v * d.v - e.v * a.v) / s.v
+                 output[r,c] = r.v
 
        init = lambda *args: 0
        grad_x = hcl.compute(size, init, name="grad_x")

@@ -113,16 +113,10 @@ void CodeGenC::AddFunction(LoweredFunc f,
       this->stream << "* " << std::get<0>(arg);
       const BufferNode* buf = f->api_args[i].as<BufferNode>();
       if (v.type().is_handle() && buf) {
-        std::vector<int> shape;
-        for (size_t i = 0; i < buf->shape.size(); i++) 
-          shape.push_back(buf->shape[i].as<IntImm>()->value);
-        arg_shapes.push_back(shape);
         var_shape_map_[buf->data.get()] = buf->shape;
         auto it = alloc_storage_scope_.find(v.get());
         if (it != alloc_storage_scope_.end())
           PrintStorageScope(it->second, stream);
-      } else { // insert scalar shape
-        arg_shapes.push_back({1});
       }
     }
   }
@@ -134,27 +128,20 @@ void CodeGenC::AddFunction(LoweredFunc f,
   this->EndScope(func_scope);
   this->PrintIndent();
   this->stream << "}\n\n";
-
 }
 
 std::string CodeGenC::GetHost() {
-  host_stream << stream.str(); 
-  std::string postproc = host_stream.str();
-  return postproc;
+  return this->stream.str(); 
 }
 
 std::string CodeGenC::GetDevice() {
-  return decl_stream.str() + "\n" + module_stream.str(); 
+  return module_stream.str(); 
 }
 
 std::string CodeGenC::Finish() {
-  std::ostringstream device;
-  if (fpga_scope_) device << stream.str();
-  else host_stream << stream.str(); 
-  device << "}\n";
   return decl_stream.str() + 
-         module_stream.str() + device.str() + 
-         host_stream.str();
+         module_stream.str() + 
+         stream.str();
 }
 
 void CodeGenC::PrintExpr(const Expr& n, std::ostream& os) {  // NOLINT(*)
@@ -880,20 +867,6 @@ void CodeGenC::VisitExpr_(const KernelExpr *op, std::ostream& os) { // NOLINT(*)
 }
 
 void CodeGenC::VisitStmt_(const StreamStmt *op) { // NOLINT(*)
-  // consider streaming as write & read in c 
-  // auto load_op = op->value.as<Load>();
-  // std::string vid = GetVarID(load_op->buffer_var.get()); 
-  // PrintIndent();
-  // auto v = load_op->buffer_var.as<Variable>();
-  // // placeholder args using recv name 
-  // if (stream_table.count(v)) {
-  //   auto prev = arg_top_vars[v];
-  //   arg_top_vars[v] = {vid, prev.type, prev.shape};
-  //   stream_table[v] = true;
-  // } // else: streamed externop defined in analysis
-  // PrintExpr(op->value, stream);
-  // stream << vid << ".write()\n";
-
   PrintIndent();
   std::string vid = GetVarID(op->buffer_var.get()); 
   stream << vid << ".write(";
@@ -922,7 +895,7 @@ void CodeGenC::VisitStmt_(const LetStmt* op) {
     // collect top args variable id
     } else if (value.find("data") != std::string::npos ||
                value.substr(0, 3) == "arg") {
-      // LOG(INFO) << vid;
+      arg_names.push_back(vid);
     }
     PrintStmt(op->body);
   }
@@ -983,7 +956,6 @@ void CodeGenC::VisitStmt_(const AttrStmt* op) {
     const Variable* v = op->node.as<Variable>();
     CHECK(v);
     volatile_buf_.insert(v);
-  // } else if (op->attr_key == ir::attr::device_scope) {
   }
   this->PrintStmt(op->body);
 }

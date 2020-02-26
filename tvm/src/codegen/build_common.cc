@@ -34,12 +34,12 @@ class SimModuleNode final : public ModuleNode {
  public:
   SimModuleNode(LoweredFunc func, 
                 std::string host_code,
-                argInfo arg_info,
+                std::vector<std::string> arg_names,
                 std::string dev_code, std::string platform, 
                 std::unordered_map<std::string, std::string> options)
     : func_(func), 
       host_(host_code), 
-      arg_info_(arg_info),
+      arg_names_(arg_names),
       dev_(dev_code), 
       platform_(platform), 
       options_(options) {}
@@ -76,9 +76,6 @@ class SimModuleNode final : public ModuleNode {
 
         } else { // perform init
           std::vector<TVMType> arg_types;
-          int added_args_num = 0;
-          if (options_["added_args_num"].length() > 0)
-            added_args_num = std::stoi(options_["added_args_num"]);
           CollectArgInfo(args, func_, arg_sizes, arg_types);
           GenSharedMem(args, shmids, arg_sizes);
 
@@ -87,18 +84,18 @@ class SimModuleNode final : public ModuleNode {
 
           if (platform_ == "sdaccel") {
             GenHostCode(args, shmids, arg_types, func_, 
-                        platform_, host_, arg_info_, added_args_num);
+                        platform_, host_, arg_names_);
             GenKernelCode(dev_, platform_, options_["backend"]);
 
           } else if (platform_ == "aocl") {
             GenHostCode(args, shmids, arg_types, func_, 
-                        platform_, host_, arg_info_, added_args_num);
+                        platform_, host_, arg_names_);
             GenKernelCode(dev_, platform_, options_["backend"]);
 
           } else if (platform_ == "rocket") {
             // generate host and run proxy kernel test 
             GenHostCode(args, shmids, arg_types, func_, 
-                        platform_, host_, arg_info_, added_args_num);
+                        platform_, host_, arg_names_);
             std::string compile = "cd __tmp__;";
             compile += std::string("autoconf; mkdir build; cd build;") +
                        std::string("../configure --with-riscvtools=") + 
@@ -108,7 +105,7 @@ class SimModuleNode final : public ModuleNode {
           } else if (platform_ == "vivado_hls" || 
                      platform_ == "vivado" || platform_ == "sdsoc") {
             GenHostCode(args, shmids, arg_types, func_, 
-                        platform_, host_, arg_info_, added_args_num);
+                        platform_, host_, arg_names_);
             GenKernelCode(dev_, platform_, options_["backend"]); 
 
           } else { // unsupported platform
@@ -171,7 +168,7 @@ class SimModuleNode final : public ModuleNode {
  private:
   LoweredFunc func_;
   std::string host_;
-  argInfo arg_info_;
+  std::vector<std::string> arg_names_;
   std::string dev_;
   std::string platform_;
   std::unordered_map<std::string, std::string> options_;
@@ -183,20 +180,18 @@ Module CreateSimModule(
     LoweredFunc func,
     std::string host_code,
     std::string dev_code,
-    argInfo arg_types,
+    std::vector<std::string> arg_names,
     std::string platform, 
     std::unordered_map<std::string, std::string> options) {
   std::shared_ptr<SimModuleNode> n =
     std::make_shared<SimModuleNode>(func, host_code, 
-                                    arg_types, dev_code,
+                                    arg_names, dev_code,
                                     platform, options);
   return Module(n);
 }
 } // namespace runtime
 
 namespace codegen {
-using runtime::argItem;
-using argInfo = std::vector<argItem>;
 
 // unified simulation function for diff platforms 
 template<class CodeGenHost, class CodeGenXcel>
@@ -224,7 +219,6 @@ runtime::Module BuildSimModule(Array<LoweredFunc> funcs,
   std::unordered_map<std::string, std::string> options;
   options["backend"] = backend;
 
-  argInfo arg_info;
   for (size_t k = 1; k < attrs.size(); k++) {
     auto key = attrs[k].as<StringImm>()->value;
     auto val = values[k].as<StringImm>()->value;
@@ -233,7 +227,8 @@ runtime::Module BuildSimModule(Array<LoweredFunc> funcs,
   return runtime::CreateSimModule(funcs[0], 
                                   cg_host.GetHost(),
                                   cg_dev.GetDevice(),
-                                  arg_info, platform, options);
+                                  cg_host.arg_names, 
+                                  platform, options);
 }
 
 TVM_REGISTER_API("codegen.build_sim")
