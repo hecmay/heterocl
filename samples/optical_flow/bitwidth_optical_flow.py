@@ -112,12 +112,14 @@ def optical_flow(target=target):
        def outer_product(filt_grad, out_product):
            def update(y, x):
                t = hcl.scalar(filt_grad[y, x], name="t", dtype=sb)
-               out_product[y, x].fa = t.v.fa * t.v.fa
-               out_product[y, x].fb = t.v.fb * t.v.fb
-               out_product[y, x].fc = t.v.fc * t.v.fc
-               out_product[y, x].fd = t.v.fa * t.v.fb
-               out_product[y, x].fe = t.v.fa * t.v.fc
-               out_product[y, x].ff = t.v.fb * t.v.fc
+               r = hcl.scalar(0, dtype=sc)
+               r.v.fa = t.v.fa * t.v.fa
+               r.v.fb = t.v.fb * t.v.fb
+               r.v.fc = t.v.fc * t.v.fc
+               r.v.fd = t.v.fa * t.v.fb
+               r.v.fe = t.v.fa * t.v.fc
+               r.v.ff = t.v.fb * t.v.fc
+               out_product[y, x].fa = r.v 
            hcl.mutate(out_product.shape, lambda y, x: update(y, x))
 
        @hcl.def_([size, size], dtypes=[sc, sc])
@@ -131,19 +133,21 @@ def optical_flow(target=target):
                e = hcl.scalar(0, "e")
                f = hcl.scalar(0, "f")
                with hcl.for_(0, 3) as rd:
-                  t = hcl.scalar(out_product[y, x], name="t", dtype=sc)
+                  t = hcl.scalar(out_product[y+rd, x], name="t", dtype=sc)
                   a.v += t.v.fa * t_w[rd] 
                   b.v += t.v.fb * t_w[rd]
                   c.v += t.v.fc * t_w[rd]
                   d.v += t.v.fd * t_w[rd] 
                   e.v += t.v.fe * t_w[rd]
                   f.v += t.v.ff * t_w[rd]
-               tensor_y[y+1, x].fa = a.v 
-               tensor_y[y+1, x].fb = b.v
-               tensor_y[y+1, x].fc = c.v
-               tensor_y[y+1, x].fd = d.v 
-               tensor_y[y+1, x].fe = e.v
-               tensor_y[y+1, x].ff = f.v
+               r = hcl.scalar(0, dtype=sc)
+               r.v.fa = a.v
+               r.v.fb = b.v
+               r.v.fc = c.v
+               r.v.fd = d.v
+               r.v.fe = e.v
+               r.v.ff = f.v
+               tensor_y[y+1, x] = r.v
            hcl.mutate((height-2, width), lambda y, x: update(y, x))
 
        @hcl.def_([size, size], dtypes=[sc, sc])
@@ -164,12 +168,14 @@ def optical_flow(target=target):
                   d.v += t.v.fd * t_w[rd] 
                   e.v += t.v.fe * t_w[rd]
                   f.v += t.v.ff * t_w[rd]
-               tensor[y, x+1].fa = a.v 
-               tensor[y, x+1].fb = b.v
-               tensor[y, x+1].fc = c.v
-               tensor[y, x+1].fd = d.v 
-               tensor[y, x+1].fe = e.v
-               tensor[y, x+1].ff = f.v
+               r = hcl.scalar(0, dtype=sc)
+               r.v.fa = a.v
+               r.v.fb = b.v
+               r.v.fc = c.v
+               r.v.fd = d.v
+               r.v.fe = e.v
+               r.v.ff = f.v
+               tensor[y, x+1] = r.v
            hcl.mutate((height, width-2), lambda y, x: update(y, x))
 
        @hcl.def_([size, size], dtypes=[sc, sa])
@@ -211,8 +217,8 @@ def optical_flow(target=target):
 
     s = hcl.create_schedule([*images, output], kernel)
 
-    # s.to([*images], target.xcel)
-    # s.to(output, target.host)
+    s.to([*images], target.xcel)
+    s.to(output, target.host)
 
     kgx = kernel.calc_x_gradient
     kgy = kernel.calc_y_gradient
@@ -226,14 +232,14 @@ def optical_flow(target=target):
     ktx = kernel.tensor_weight_x
     kfc = kernel.flow_calc
 
-    # s.reuse_at(kgy.input_image, s[kgy], kgy.axis[0])
-    # s.reuse_at(kgx.input_image, s[kgx], kgx.axis[1])
+    s.reuse_at(kgy.input_image, s[kgy], kgy.axis[0])
+    s.reuse_at(kgx.input_image, s[kgx], kgx.axis[1])
 
-    # s.reuse_at(kwy.pack, s[kwy], kwy.axis[0])
-    # s.reuse_at(kwx.y_filt, s[kwx], kwx.axis[1])
+    s.reuse_at(kwy.pack, s[kwy], kwy.axis[0])
+    s.reuse_at(kwx.y_filt, s[kwx], kwx.axis[1])
 
-    # s.reuse_at(ktx.tensor_y, s[ktx], ktx.axis[1])
-    # s.reuse_at(kty.out_product, s[kty], kty.axis[0])
+    s.reuse_at(ktx.tensor_y, s[ktx], ktx.axis[1])
+    s.reuse_at(kty.out_product, s[kty], kty.axis[0])
 
     # s.to(kernel.grad_y, s[kpc], s[kgy])
     # s.to(kernel.grad_x, s[kpc], s[kgx])
@@ -247,6 +253,7 @@ def optical_flow(target=target):
     # s.to(kernel.tensor_y, s[ktx], s[kty])
     # s.to(kernel.tensor, s[kfc], s[ktx])
 
+    print(hcl.lower(s))
     return hcl.build(s, target)
 
 # load ppm image amd convert to grayscale
