@@ -17,7 +17,7 @@ namespace TVM {
 namespace schedule {
 
 using namespace ir;
-bool debug = true;
+bool debug = false;
 
 void TraceExternMods(const Array<Operation>& roots,
         const ReadGraph& g, 

@@ -369,9 +369,9 @@ const int bank[MAX_HBM_BANKCOUNT] = {
         }
         auto name = "BufExt_" + arg_name; 
         // create external mem pointer
-        stream << "cl_mem_ext_ptr_t " << name << ";\n";
+        stream << "  " << "cl_mem_ext_ptr_t " << name << ";\n";
         stream << "  " << name << ".flags = bank[" << port << "];\n"; 
-        stream << "  " << name << ".parameter = 0;\n"; 
+        stream << "  " << name << ".param = 0;\n"; 
         stream << "  " << name << ".obj = &" << arg_name << "[0];\n"; 
         PrintIndent();
         stream << "cl::Buffer buffer_" 
@@ -496,7 +496,9 @@ const int bank[MAX_HBM_BANKCOUNT] = {
     }
 
     PrintIndent();
-    stream << "err = q.finish();\n\n";
+    stream << "err = q.finish();\n";
+    //stream << "  " << "kernel_time = std::chrono::duration"
+    //       << "<double>(kernel_end - kernel_start)\n;";
 
     // realease xcl stream
     if (stream_arg_num > 0) {
