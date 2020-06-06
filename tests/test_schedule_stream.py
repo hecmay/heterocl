@@ -568,10 +568,10 @@ def test_mem_customization():
         target.config(compile="vivado_hls",mode="csim")
 
         RB = s.reuse_at(A, s[kernel_B], kernel_B.axis[1])
-        # s.to(kernel.B, target.xcel)
-        # s.to(kernel.C, target.host)
+        s.to(kernel.B, target.xcel)
+        s.to(kernel.C, target.host)
 
-        # print(hcl.lower(s))
+        print(hcl.lower(s))
         f = hcl.build(s, target)
 
     test_array_partition()

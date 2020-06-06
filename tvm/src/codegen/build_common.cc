@@ -102,7 +102,7 @@ class SimModuleNode final : public ModuleNode {
               names += arg_names_[i];
             }
 
-            size_t hash = hasher(dev_);
+            size_t hash = hasher(dev_) % 100000;
             pre_compiled = (*f)(hash, shmid_arr, names).operator bool();
             if (pre_compiled) {
               // TODO: check execution modes (sw/hw)

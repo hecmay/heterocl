@@ -341,7 +341,7 @@ void GenKernelCode(std::string& test_file, std::vector<std::string> arg_names,
 
   // generate hash
   std::hash<std::string> hasher;
-  stream << "// HASH:" << (size_t)hasher(test_file) << "\n";
+  stream << "// HASH:" << (size_t)hasher(test_file) % 100000 << "\n";
 
   // create typedef and header 
   if (platform == "vivado" || platform == "vivado_hls" ||
