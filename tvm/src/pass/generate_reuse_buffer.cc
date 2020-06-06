@@ -297,11 +297,15 @@ class ReuseBufferInserter final : public IRMutator {
             shift_indices.push_back(reuse_indices[dim]);
         }
         // build the for loop
+        CHECK(node->body.as<AttrStmt>()) << node->body;
         const AttrStmt* attr_alloc = node->body.as<AttrStmt>();
+        CHECK(attr_alloc->body.as<Allocate>()) << attr_alloc->body;
         const Allocate* alloc = attr_alloc->body.as<Allocate>();
+
         Array<Expr> normal_shape;
         for (int i = reuse_shape.size()-1; i >= 0; i--)
           normal_shape.push_back(reuse_shape[i]);
+
         shape_map_[alloc->buffer_var.get()] = normal_shape;
         // 1. build the update case
         Expr reuse_index = calculate_index(reuse_indices, normal_shape);

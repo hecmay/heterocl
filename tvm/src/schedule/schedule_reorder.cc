@@ -17,7 +17,7 @@ namespace TVM {
 namespace schedule {
 
 using namespace ir;
-bool debug = false;
+bool debug = true;
 
 void TraceExternMods(const Array<Operation>& roots,
         const ReadGraph& g, 
@@ -85,7 +85,11 @@ Stmt AttachScopeReorder(Array<Operation>& post_order,
             CHECK(body.defined());
             body = AttrStmt::make(VarExpr(sub_buf.node_), 
                 attr::attach_scope, StringImm::make("_top"), body);
-            if (debug) LOG(INFO) << "\nreordered top stage body:\n" << body;
+            if (debug) { 
+                LOG(INFO) << "\n -----------"
+                          << "reordered top stage body"
+                          << "-------------" << ":\n" << body;
+            }
           }
         }
       }
@@ -360,7 +364,9 @@ std::vector<Operation> ExtractSubGraph(
       VarExpr(), attr::device_scope, scope, body);
 
   if (debug) {
+    LOG(INFO) << "--------------- ops in the subgraph -----------";
     for(auto op : new_subgraph) LOG(INFO) << op;
+    LOG(INFO) << "--------------- aggreated op body -----------";
     LOG(INFO) << aggregate->body;
   }
 
@@ -599,8 +605,15 @@ Array<Operation> PostDFSSplit(
     CHECK(results.size() >= sch->stages.size())
       << "missing ops in result. size " << results.size() << ":" << sch->stages.size()
       << results;
+    if (debug) {
+      LOG(INFO) << "\n--------------"
+                << "PostDFSSplit ops after reordering"
+                << "----------------\n"
+                << results;
+    }
     return results;
   }
+  LOG(INFO) << post_order;
 
   return post_order;
 }
