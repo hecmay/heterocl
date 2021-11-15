@@ -384,7 +384,7 @@ void Schedule::stage_move(Stage parent, DeviceType device_type,
     }
   }
 
-  CHECK(scope.defined()) << "unsopport device ";
+  CHECK(scope.defined()) << "unsupported device ";
   const ExternOpNode* op = parent->op.as<ExternOpNode>();
   CHECK(op) << parent << " not a extern op";
   Stmt body = InStageMover(scope, occur_index).Mutate(op->body);
@@ -395,7 +395,7 @@ void Schedule::stage_move(Stage parent, DeviceType device_type,
                          op->input_placeholders, op->output_placeholders, body);
 }
 
-// Move data to device
+// Move data to device (e.g., s.to(tensor, p.host))
 Tensor Schedule::move_to(const Tensor& target, Stage parent,
                          DeviceType device_type, StreamType stream_type,
                          int channel_depth, Array<Expr> dev_ports) {

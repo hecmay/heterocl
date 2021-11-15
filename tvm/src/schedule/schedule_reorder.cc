@@ -5,8 +5,11 @@
  */
 #include <tvm/ir_pass.h>
 #include <tvm/ir_visitor.h>
+#include <tvm/ir_mutator.h>
 #include <tvm/operation.h>
 #include <tvm/schedule_pass.h>
+#include <tvm/packed_func_ext.h>
+#include <tvm/runtime/registry.h>
 #include <unordered_map>
 #include <unordered_set>
 #include "../runtime/thread_storage_scope.h"
@@ -871,6 +874,10 @@ Schedule ScopePartition(const Schedule& sch) {
     if (sch->stage_map[op]->is_output) roots.push_back(sch->stage_map[op]->op);
   }
   CHECK(!roots.empty()) << "empty roots";
+  if (const auto* f = TVM::runtime::Registry::Get("analyze_dataflow")) {
+    bool test = (*f)(roots, sch);
+    CHECK(test);
+  }
 
   ReadGraph rmap;
   vector<Operation> stack;

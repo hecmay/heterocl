@@ -21,6 +21,13 @@ def run_process(cmd, pattern=None, env=None):
         print("[DEBUG] Commands outputs: \n{}\n".format(out.decode("utf-8")))
     return out.decode("utf-8")
 
+# 1. analyze the data placement in schedule
+# 2. infer compute placement based on user-specified .to()
+@register_func
+def analyze_dataflow(roots, sch):
+    print(sch, roots)
+    return True
+
 @register_func
 def exec_init(dev_hash, tool, mode):
     # check whether pre-compiled bitstream exitsts

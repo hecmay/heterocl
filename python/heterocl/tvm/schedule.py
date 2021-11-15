@@ -267,7 +267,7 @@ class _Schedule(NodeBase):
     # Move a placeholder or extern op to device
     def move_to_device(self, target, dst, src, dev_port, axis=0, 
            io_type=_expr.IO.DMA, depth=1):
-        dst = 1 if 'fpga' in str(dst) else 0
+        dst = 1 if 'FPGA' in str(dst) else 0
         return _api_internal._ScheduleMove(self, target, src, dst,
                 io_type, depth, dev_port)
 
