@@ -3,6 +3,7 @@ from .utils import *
 import os, subprocess, time, re, glob
 from ..report import parse_xml
 from ..devices import Project
+import networkx as nx
 debug = True
 
 # 1. analyze the data placement in schedule
@@ -13,6 +14,7 @@ def analyze_dataflow(roots, sch):
     stack = list()
     visited_ops = set()
     read_map = dict()
+    name_to_stage_map = dict()
     for op in roots:
         stack.append(op)
         visited_ops.add(op)
@@ -35,24 +37,37 @@ def analyze_dataflow(roots, sch):
                 stack.append(input_op)
 
         read_map[op] = op_inputs
+        name_to_stage_map[op.name] = op
 
-    # 2. build DFG in networkx and extract placement information
+    # 2. extract placement and stage attaching information
+    attach_map = dict()
+    placement_map = dict()
     for op, inputs in read_map.items():
         print("\n==========")
         print("DFG node: ", op)
         print("  -- placement: ", sch.stage_map[op].placement)
 
         # extract attaching stages in the body
-        children_stages = get_attaching_stages(op.body)
-        print("  -- children stages: ", children_stages)
+        sub_stages = get_attaching_stages(op.body)
+        print("  -- sub stages: ", sub_stages)
+        sub_stages_name = list()
+        for sub in sub_stages:
+            sub_stages_name.append(sub.name)
+        attach_map[op.name] = sub_stages_name
+        placement_map[op.name] = sch.stage_map[op].placement
 
         print("  -- input tensors: ")
         for stage in inputs:
             tensor = sch.stage_map[stage].op.output(0)
             print("        ", tensor, "(", tensor.shape, ", ", tensor.dtype, ")")
+    
+    # 3. construct DFG in networkx
+    tops = attach_map["_top"]
 
-    # 3. infer the compute placement with ILP
-    pass
+    # 4. infer the compute placement with ILP
+    compute_inf = dict()
+
+    # return a new schedule
     return True
 
 @register_func
