@@ -1,31 +1,58 @@
 from ._ffi.function import register_func
+from .utils import *
 import os, subprocess, time, re, glob
 from ..report import parse_xml
 from ..devices import Project
 debug = True
 
-def replace_text(f_name, prev, new):
-    with open(f_name, 'r') as fp:
-        data = fp.read()
-    data = data.replace(prev, new)
-    with open(f_name, 'w') as fp:
-        fp.write(data)
-
-def run_process(cmd, pattern=None, env=None):
-    if debug: print("[DEBUG] Running commands: \n{}\n".format(cmd))
-    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
-    out, err = p.communicate()
-    if err: raise RuntimeError("Error raised: ", err.decode())
-    if pattern: return re.findall(pattern, out.decode("utf-8"))
-    if debug: 
-        print("[DEBUG] Commands outputs: \n{}\n".format(out.decode("utf-8")))
-    return out.decode("utf-8")
-
 # 1. analyze the data placement in schedule
 # 2. infer compute placement based on user-specified .to()
 @register_func
 def analyze_dataflow(roots, sch):
-    print(sch, roots)
+    # 1. build read graph from schedule with DFS
+    stack = list()
+    visited_ops = set()
+    read_map = dict()
+    for op in roots:
+        stack.append(op)
+        visited_ops.add(op)
+
+    while len(stack) > 0:
+        op = stack.pop()
+        op_inputs = list()
+
+        # placeholder ops without input
+        if not hasattr(op, "inputs"):
+            continue
+
+        for tensor in op.inputs:
+            input_op = tensor.op
+            input_stage = sch.stage_map[input_op]
+            op_inputs.append(input_op)
+
+            if input_op not in visited_ops:
+                visited_ops.add(input_op)
+                stack.append(input_op)
+
+        read_map[op] = op_inputs
+
+    # 2. build DFG in networkx and extract placement information
+    for op, inputs in read_map.items():
+        print("\n==========")
+        print("DFG node: ", op)
+        print("  -- placement: ", sch.stage_map[op].placement)
+
+        # extract attaching stages in the body
+        children_stages = get_attaching_stages(op.body)
+        print("  -- children stages: ", children_stages)
+
+        print("  -- input tensors: ")
+        for stage in inputs:
+            tensor = sch.stage_map[stage].op.output(0)
+            print("        ", tensor, "(", tensor.shape, ", ", tensor.dtype, ")")
+
+    # 3. infer the compute placement with ILP
+    pass
     return True
 
 @register_func

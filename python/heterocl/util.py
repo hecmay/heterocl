@@ -10,6 +10,23 @@ from .scheme import Scheme
 from .debug import DTypeError
 from .mutator import Mutator
 
+def replace_text(f_name, prev, new):
+    with open(f_name, 'r') as fp:
+        data = fp.read()
+    data = data.replace(prev, new)
+    with open(f_name, 'w') as fp:
+        fp.write(data)
+
+def run_process(cmd, pattern=None, env=None):
+    if debug: print("[DEBUG] Running commands: \n{}\n".format(cmd))
+    p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
+    out, err = p.communicate()
+    if err: raise RuntimeError("Error raised: ", err.decode())
+    if pattern: return re.findall(pattern, out.decode("utf-8"))
+    if debug: 
+        print("[DEBUG] Commands outputs: \n{}\n".format(out.decode("utf-8")))
+    return out.decode("utf-8")
+
 class VarName():
     """A counter for each type of variables.
 

@@ -502,10 +502,12 @@ Tensor Schedule::move_to(const Tensor& target, Stage parent,
     HCL_DEBUG_LEVEL(2) << "Moving tensor " << target->op->name << from
                        << " to Host...";
     target_stage->device_type = DeviceType::devFPGA;
+    target_stage->placement = "FPGA";
   } else {
     HCL_DEBUG_LEVEL(2) << "Moving tensor " << target->op->name << from
                        << " to FPGA...";
     target_stage->device_type = DeviceType::devHost;
+    target_stage->placement = "Host";
   }
 
   // Update consumer stages with new tensor and buffer
@@ -526,6 +528,7 @@ Tensor Schedule::move_to(const Tensor& target, Stage parent,
       HCL_DEBUG_LEVEL(2) << "Mark stage " << op->name << " on " << scope
                          << " scope...";
       s->device_type = consumers_dev_type;
+      s->placement = scope;
     }
     (*this)->stage_map.Set(s->op, s);
   }
