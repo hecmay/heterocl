@@ -39,9 +39,11 @@ def analyze_dataflow(roots, sch):
         read_map[op] = op_inputs
         name_to_stage_map[op.name] = op
 
-    # 2. extract placement and stage attaching information
+    # 2. traverse read graph and 
+    #    extract placement and stage attaching information
     attach_map = dict()
     placement_map = dict()
+    graph = nx.DiGraph()
     for op, inputs in read_map.items():
         print("\n==========")
         print("DFG node: ", op)
@@ -53,19 +55,51 @@ def analyze_dataflow(roots, sch):
         sub_stages_name = list()
         for sub in sub_stages:
             sub_stages_name.append(sub.name)
+
         attach_map[op.name] = sub_stages_name
         placement_map[op.name] = sch.stage_map[op].placement
+        graph.add_node(op.name, placement=placement_map[op.name])
 
         print("  -- input tensors: ")
         for stage in inputs:
             tensor = sch.stage_map[stage].op.output(0)
             print("        ", tensor, "(", tensor.shape, ", ", tensor.dtype, ")")
-    
-    # 3. construct DFG in networkx
-    tops = attach_map["_top"]
+            shape = tensor.shape
+            
+            # if input tensor is from an update stage
+            if len(tensor.shape) == 0:
+                shape = get_update_tensor_shape(stage)
 
-    # 4. infer the compute placement with ILP
+            # add directed edge between stages
+            graph.add_edges_from(
+                [(stage.name, op.name, 
+                    {'shape': shape,
+                     'dtype': tensor.dtype})])
+    
+    tops = attach_map["_top"]
+    print(nx.to_dict_of_dicts(graph))
+
+    # 3. infer the compute placement with ILP
     compute_inf = dict()
+    for node in graph.nodes:
+        # placeholder nodes are placed to host
+        if node not in attach_map:
+            compute_inf[node] = 'HOST'
+            continue
+        if len(attach_map[node]) == 0:
+            compute_inf[node] = graph.nodes[node]['placement']
+
+    adj = nx.adjacency_matrix(graph).todense()
+    def cost(v1, v2):
+        if adj[v1, v2]:
+            shape = graph.edges[v1,v2]["shape"]
+            dtype = graph.edges[v1,v2]["dtype"]
+            return 100
+        else:
+            return 0
+
+    # 4. mutate top op's body statement
+    pass
 
     # return a new schedule
     return True

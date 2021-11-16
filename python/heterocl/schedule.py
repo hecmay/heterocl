@@ -140,7 +140,8 @@ class Schedule(object):
                 raise ImportError("Graphviz and either PyGraphviz or Pydot required")
             pos=graphviz_layout(graph)
             nx.draw(graph, pos, with_labels=True)
-            plt.show()
+            # plt.show()
+            plt.savefig("output.png")
 
         return graph, op_map
 

@@ -43,3 +43,7 @@ class ExtractAttachingStages(Mutator):
 
 def get_attaching_stages(body):
     return ExtractAttachingStages().analyze(body)
+
+# TODO: add visitor to extract tensor shape
+def get_update_tensor_shape(stage):
+    return [10, 32]

@@ -39,6 +39,7 @@ def test_graph_partition_02():
     s.to(kernel.B, target.host)
     s.to(kernel.update1.B, target.xcel)
 
+    # s.dataflow_graph(plot=True)
     code = str(hcl.lower(s)); print(code)
     assert "test(int32(B[10*32]), int32(A[10*32]))" in code, code
 
