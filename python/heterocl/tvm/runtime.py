@@ -4,6 +4,11 @@ import os, subprocess, time, re, glob
 from ..report import parse_xml
 from ..devices import Project
 import networkx as nx
+
+from . import expr as _expr
+from . import stmt as _stmt
+from . import make as _make
+
 debug = True
 
 # 1. analyze the data placement in schedule
@@ -50,13 +55,10 @@ def analyze_dataflow(roots, sch):
         print("  -- placement: ", sch.stage_map[op].placement)
 
         # extract attaching stages in the body
-        sub_stages = get_attaching_stages(op.body)
-        print("  -- sub stages: ", sub_stages)
-        sub_stages_name = list()
-        for sub in sub_stages:
-            sub_stages_name.append(sub.name)
+        sub_stage_buffers = get_attaching_stages(op.body)
+        print("  -- sub stages: ", sub_stage_buffers)
 
-        attach_map[op.name] = sub_stages_name
+        attach_map[op.name] = sub_stage_buffers
         placement_map[op.name] = sch.stage_map[op].placement
         graph.add_node(op.name, placement=placement_map[op.name])
 
@@ -77,29 +79,67 @@ def analyze_dataflow(roots, sch):
                      'dtype': tensor.dtype})])
     
     tops = attach_map["_top"]
+    for stage in tops:
+        if len(attach_map[stage.name]) > 1:
+            pos = tops.index(stage)
+            tops[pos:pos] = attach_map[stage]
     print(nx.to_dict_of_dicts(graph))
 
     # 3. infer the compute placement with ILP
     compute_inf = dict()
+    placeholders = list()
+
     for node in graph.nodes:
         # placeholder nodes are placed to host
         if node not in attach_map:
             compute_inf[node] = 'HOST'
-            continue
-        if len(attach_map[node]) == 0:
-            compute_inf[node] = graph.nodes[node]['placement']
+            placeholders.append(node)
+    
+    for node in tops:
+        # for extern op nodes
+        assert len(attach_map[node.name]) == 0
+        compute_inf[node] = graph.nodes[node.name]['placement']
 
-    adj = nx.adjacency_matrix(graph).todense()
-    def cost(v1, v2):
-        if adj[v1, v2]:
-            shape = graph.edges[v1,v2]["shape"]
-            dtype = graph.edges[v1,v2]["dtype"]
-            return 100
-        else:
+    ordered_stages = placeholders + tops
+    print("\n -----------")
+    print("Stages list and user-specified placements:")
+    print(ordered_stages, compute_inf)
+    
+    do_inference = False
+    for stage in ordered_stages:
+        if compute_inf[stage] == '':
+            do_inference = True
+            break
+    
+    if do_inference:
+        adj = nx.adjacency_matrix(graph).todense()
+        def cost(v1, v2):
+            if adj[v1, v2]:
+                shape = graph.edges[v1,v2]["shape"]
+                dtype = graph.edges[v1,v2]["dtype"]
+                return 100
             return 0
 
     # 4. mutate top op's body statement
-    pass
+    top = name_to_stage_map["_top"]
+    FPGA_nodes, FPGA_groups = list(), list()
+    for stage, placement in compute_inf.items():
+        if placement == "FPGA":
+            FPGA_nodes.append(stage)
+    
+    for node in FPGA_nodes:
+        FPGA_group = [ node ]
+        # group precessors
+        stack = list(); stack.append(node)
+
+        # group successors
+        stack = list(); stack.append(node)
+
+    # 4.2 stack host stages and FPGA super stages
+    attr_node = _make.AttrStmt(
+        _make.StringImm("FPGA"), 
+        "device_scope", 
+        _make.StringImm("FPGA"), top.body)
 
     # return a new schedule
     return True
