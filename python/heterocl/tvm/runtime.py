@@ -8,6 +8,8 @@ import networkx as nx
 from . import expr as _expr
 from . import stmt as _stmt
 from . import make as _make
+from . import api as tvm_api
+from . import _api_internal
 
 debug = True
 
@@ -78,11 +80,13 @@ def analyze_dataflow(roots, sch):
                     {'shape': shape,
                      'dtype': tensor.dtype})])
     
-    tops = attach_map["_top"]
-    for stage in tops:
+    top_stage_buffers = attach_map["_top"]
+    for stage in top_stage_buffers:
+        # TOOD (Hecmay) consider multi-level stage
+        # insert attaching sub-stages into op list
         if len(attach_map[stage.name]) > 1:
-            pos = tops.index(stage)
-            tops[pos:pos] = attach_map[stage]
+            pos = top_stage_buffers.index(stage)
+            top_stage_buffers[pos:pos] = attach_map[stage]
     print(nx.to_dict_of_dicts(graph))
 
     # 3. infer the compute placement with ILP
@@ -95,15 +99,18 @@ def analyze_dataflow(roots, sch):
             compute_inf[node] = 'HOST'
             placeholders.append(node)
     
-    for node in tops:
+    for node in top_stage_buffers:
         # for extern op nodes
         assert len(attach_map[node.name]) == 0
-        compute_inf[node] = graph.nodes[node.name]['placement']
+        compute_inf[node.name] = graph.nodes[node.name]['placement']
 
-    ordered_stages = placeholders + tops
+    top_stage_names = [ _.name for _ in top_stage_buffers ]
+    ordered_stages = placeholders + top_stage_names
     print("\n -----------")
-    print("Stages list and user-specified placements:")
-    print(ordered_stages, compute_inf)
+    print("Complete stages list:")
+    print(ordered_stages)
+    print("Stages placements:")
+    print(compute_inf)
     
     do_inference = False
     for stage in ordered_stages:
@@ -112,6 +119,8 @@ def analyze_dataflow(roots, sch):
             break
     
     if do_inference:
+        # TODO (hecmay) add ILP solver
+        # start inference if certain stages have no placement
         adj = nx.adjacency_matrix(graph).todense()
         def cost(v1, v2):
             if adj[v1, v2]:
@@ -121,28 +130,112 @@ def analyze_dataflow(roots, sch):
             return 0
 
     # 4. mutate top op's body statement
-    top = name_to_stage_map["_top"]
     FPGA_nodes, FPGA_groups = list(), list()
-    for stage, placement in compute_inf.items():
+    for stage in ordered_stages:
+        placement = compute_inf[stage]
         if placement == "FPGA":
             FPGA_nodes.append(stage)
     
-    for node in FPGA_nodes:
-        FPGA_group = [ node ]
-        # group precessors
+    dev_root_map = dict() # from dev root stage to super stage
+    for node in reversed(FPGA_nodes):
+        FPGA_group = list()
+        # group precessors if they reside on FPGA
         stack = list(); stack.append(node)
+        visited_ops = set()
+        visited_ops.add(node)
+        FPGA_group.append(node)
 
-        # group successors
-        stack = list(); stack.append(node)
+        while len(stack) > 0:
+            stage_name = stack.pop()
+            stage = name_to_stage_map[stage_name]
+            
+            for input_tensor in stage.inputs:
+                input_stage_name = input_tensor.op.name
+
+                # avoid revisiting ops (e.g., diamond shape)
+                if input_stage_name not in visited_ops:
+                    visited_ops.add(input_stage_name)
+
+                    if compute_inf[input_stage_name] == "FPGA":
+                        stack.append(input_stage_name)
+                        FPGA_group.append(input_stage_name)
+
+        print("\n----")
+        print("device group for node", node, ": ", FPGA_group)
+        pos = len(ordered_stages)
+        for dev_node in FPGA_group:
+            if ordered_stages.index(dev_node) < pos:
+                pos = ordered_stages.index(dev_node)
+        
+        # create super stage (input stage to top)
+        # update the attachment relationship
+        body = _make.Evaluate(0)
+        original_parent = ""
+        curr_stage_buf = None
+        for dev_node in FPGA_group:
+            for s in attach_map:
+                children = attach_map[s]
+                children_names = [ _.name for _ in children ]
+                if dev_node in children_names:
+                    assert original_parent == ""
+                    original_parent = s
+                    curr_stage_buf = children[children_names.index(dev_node)]
+
+        assert original_parent != "", dev_node
+        body = _make.AttrStmt(
+                    curr_stage_buf, 
+                    "attach_scope", 
+                    _make.StringImm("dev_root_" + node), body)
+
+        # insert a new stage (op -> original_parent)
+        # becomes (op -> super_stage -> original_parent)
+        dev_scope_buf = tvm_api.decl_buffer(
+                        (1,), "int32", "dev_root_" + node)
+        body = _make.AttrStmt(
+                    dev_scope_buf, 
+                    "device_scope", 
+                    _make.StringImm("fpga"), body)
+
+        stage_name = "super_fpga_" + node
+        stage_bufs = [ tvm_api.decl_buffer(
+                        (1,), "int32", stage_name) ]
+
+        # extract input tensors (i.e., ops) and buffers 
+        input_ops, input_bufs = list(), list()
+        new_op = _api_internal._ExternOp(
+            stage_name, "", [], 
+            input_ops, input_bufs, stage_bufs, body)
+        dev_root_map[node] = stage_bufs[0]
 
     # 4.2 stack host stages and FPGA super stages
+    top_body = _make.Evaluate(0)
+    print("\n----")
+    print("original top function body:")
+    print(name_to_stage_map["_top"].body)
+    for stage in reversed(attach_map["_top"]):
+        if stage.name in dev_root_map:
+            top_body = _make.AttrStmt(
+                            dev_root_map[stage.name], 
+                            "attach_scope", 
+                            _make.StringImm("_top"), top_body)
+        else:    
+            top_body = _make.AttrStmt(
+                            stage, 
+                            "attach_scope", 
+                            _make.StringImm("_top"), top_body)
+
+    print("\n----")
+    print("top function body after grouping:")
+    print(top_body)
+    import sys; sys.exit()
     attr_node = _make.AttrStmt(
         _make.StringImm("FPGA"), 
         "device_scope", 
         _make.StringImm("FPGA"), top.body)
 
-    # return a new schedule
-    return True
+    # 5. return a new schedule
+    new_sch = _api_internal._CreateSchedule(new_ops)
+    return new_sch
 
 @register_func
 def exec_init(dev_hash, tool, mode):
