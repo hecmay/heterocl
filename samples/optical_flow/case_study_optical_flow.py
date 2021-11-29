@@ -18,6 +18,7 @@ s6 = hcl.Struct({"fa": dtype, "fb": dtype, "fc": dtype,
 
 # Target hardware platforms
 target = hcl.Platform.xilinx_zc706
+target.config(compiler="vitis", mode="csyn")
 
 def optical_flow(target):
     images = [hcl.placeholder(size, "input_image_" + str(_)) for _ in range(5) ]
@@ -216,6 +217,6 @@ imgs = [hcl.asarray(_) for _ in imgs]
 # build function
 f = optical_flow(target)
 
-# execute the function
+# after executing this function, HeteroFlow compiler generates kernel HLS 
+# code, host OpenCL code along with harness files (e.g., cpp image libs, Makefiles)
 f(*imgs, hcl_output)
-

@@ -213,6 +213,7 @@ def analyze_dataflow(roots, sch):
     print("\n----")
     print("original top function body:")
     print(name_to_stage_map["_top"].body)
+    new_ops = input_ops
     for stage in reversed(attach_map["_top"]):
         if stage.name in dev_root_map:
             top_body = _make.AttrStmt(
@@ -226,17 +227,14 @@ def analyze_dataflow(roots, sch):
                             _make.StringImm("_top"), top_body)
 
     print("\n----")
-    print("top function body after grouping:")
-    print(top_body)
-    import sys; sys.exit()
     attr_node = _make.AttrStmt(
         _make.StringImm("FPGA"), 
         "device_scope", 
-        _make.StringImm("FPGA"), top.body)
+        _make.StringImm("FPGA"), top_body)
 
     # 5. return a new schedule
     new_sch = _api_internal._CreateSchedule(new_ops)
-    return new_sch
+    return True
 
 @register_func
 def exec_init(dev_hash, tool, mode):
@@ -313,6 +311,7 @@ def tvm_callback_exec_evaluate(platform, mode, host_only):
         cmd = "cd {}; make ".format(Project.path)
         if mode == "csim":
             cmd += "csim"
+            post_process_hls_code(Project.path + "/kernel.cpp")
             out = run_process(cmd + " 2>&1")
             runtime = [k for k in out.split("\n") if "seconds" in k][0]
             print("[{}] Simulation runtime {}".format(
@@ -322,6 +321,7 @@ def tvm_callback_exec_evaluate(platform, mode, host_only):
             cmd += "vivado_hls"
             print("[{}] Begin synthesizing project ...".format(
                 time.strftime("%H:%M:%S", time.gmtime())))
+            post_process_hls_code(Project.path + "/kernel.cpp")
             subprocess.Popen(cmd, shell=True).wait()
             if mode != "custom":
                 out = parse_xml(Project.path, "Vivado HLS", print_flag=True)
@@ -369,9 +369,15 @@ def tvm_callback_exec_evaluate(platform, mode, host_only):
         elif mode == "hw_sim":
             cmd += "XCL_EMULATION_MODE=hw_emu ./host kernel.xclbin"
 
+        post_process_hls_code(Project.path + "/kernel.cpp")
         if host_only:
             cmd = "cd {}; ./host".format(Project.path)
-        out = run_process(cmd)
+        else:
+            if mode == "csyn":
+                pass
+            else:
+                cmd = "make all TARGET=" + mode + " DEVICE=$XDEVICE"
+                out = run_process(cmd)
 
     elif platform == "aocl":
         if mode == "sw_sim":
@@ -531,24 +537,30 @@ def copy_and_compile(platform, mode, backend, host_only, cfg, script):
             fp.write(cfg)
 
         if not host_only:
-            cmd += "make all TARGET=" + mode + " DEVICE=$XDEVICE"
+            if mode == "csyn":
+                device = "xilinx_u280_xdma_201920_3"
+                cmd = f"cd project; v++ -t hw_emu --platform $XDEVICE --save-temps -c -k test -o kernel.xo kernel.cpp"
+            else:
+                cmd = "make all TARGET=" + mode + " DEVICE=$XDEVICE"
         else: cmd += "make host"
+        post_process_hls_code(Project.path + "/kernel.cpp")
         out = run_process(cmd)
 
-        # mv combined binary to root and save
-        device = os.environ["XDEVICE"].split("/")[-1]
-        device = device.replace(".xpfm", "")
-        path = os.path.join(Project.path, "build_dir.{}.{}/kernel.xclbin".format(mode, device))
-        assert os.path.exists(path), "Not found {}".format(path)
-        run_process("cp {} ".format(path) + os.path.join(Project.path, "kernel.xclbin"))
+        if mode != "csyn":
+            # mv combined binary to root and save
+            device = os.environ["XDEVICE"].split("/")[-1]
+            device = device.replace(".xpfm", "")
+            path = os.path.join(Project.path, "build_dir.{}.{}/kernel.xclbin".format(mode, device))
+            assert os.path.exists(path), "Not found {}".format(path)
+            run_process("cp {} ".format(path) + os.path.join(Project.path, "kernel.xclbin"))
 
-        kernel = os.path.join(Project.path,"kernel.cpp")
-        with open(kernel, "r") as fp:
-            regex = "HASH:(\d+)\n"
-            hash_v = re.findall(regex, fp.read())[0]
+            kernel = os.path.join(Project.path,"kernel.cpp")
+            with open(kernel, "r") as fp:
+                regex = "HASH:(\d+)\n"
+                hash_v = re.findall(regex, fp.read())[0]
 
-        cache = os.path.join(Project.path,"save/{}-{}.xclbin".format(mode, hash_v))
-        run_process("cp " + os.path.join(Project.path, "kernel.xclbin") + " {}".format(cache))
+            cache = os.path.join(Project.path,"save/{}-{}.xclbin".format(mode, hash_v))
+            run_process("cp " + os.path.join(Project.path, "kernel.xclbin") + " {}".format(cache))
         return "success"
 
     elif platform == "aocl":

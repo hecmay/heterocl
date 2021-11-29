@@ -13,8 +13,7 @@ def replace_text(f_name, prev, new):
         fp.write(data)
 
 
-def run_process(cmd, pattern=None, env=None):
-    debug = True
+def run_process(cmd, pattern=None, env=None, debug=True):
     if debug: print("[DEBUG] Running commands: \n{}\n".format(cmd))
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
     out, err = p.communicate()
@@ -41,6 +40,16 @@ class ExtractAttachingStages(Mutator):
     def analyze(self, body):
         self.mutate(body)
         return self.children_stages
+
+# Convert struct bitcasting into struct
+def post_process_hls_code(path):
+    with open(path, "r") as fp:
+        content = fp.read()
+        if "_converter1" in content:
+            util_path = "~/HeteroFlow/optical_flow/u280/"  
+            cmd = f"cp {util_path}/* project/; "
+            run_process(cmd, debug=False)
+    return True
 
 def get_attaching_stages(body):
     return ExtractAttachingStages().analyze(body)
