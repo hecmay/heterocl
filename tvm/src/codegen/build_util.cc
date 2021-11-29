@@ -414,8 +414,9 @@ void GenKernelCode(std::string& test_file, std::vector<std::string> arg_names,
     }
 
     // locate top function
-    CHECK(test_file.find("test(") != std::string::npos)
-        << "cannot find top function";
+    if (test_file.find("test(") != std::string::npos) {
+      return;
+    }
     size_t dut = test_file.find("test(");
     size_t begin = test_file.rfind('\n', dut);
     size_t end = test_file.find(')', dut) + 1;

@@ -85,9 +85,11 @@ def analyze_dataflow(roots, sch):
         # TOOD (Hecmay) consider multi-level stage
         # insert attaching sub-stages into op list
         if len(attach_map[stage.name]) > 1:
-            pos = top_stage_buffers.index(stage)
-            top_stage_buffers[pos:pos] = attach_map[stage]
-    print(nx.to_dict_of_dicts(graph))
+            try: 
+                pos = top_stage_buffers.index(stage)
+                top_stage_buffers[pos:pos] = attach_map[stage]
+            except:
+                pass
 
     # 3. infer the compute placement with ILP
     compute_inf = dict()
@@ -101,7 +103,6 @@ def analyze_dataflow(roots, sch):
     
     for node in top_stage_buffers:
         # for extern op nodes
-        assert len(attach_map[node.name]) == 0
         compute_inf[node.name] = graph.nodes[node.name]['placement']
 
     top_stage_names = [ _.name for _ in top_stage_buffers ]

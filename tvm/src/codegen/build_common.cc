@@ -97,7 +97,7 @@ class SimModuleNode final : public ModuleNode {
         }
 
         if (!pre_compiled) {
-          LOG(CLEAN) << "Generating harness files ...";
+          LOG(CLEAN) << "Generating kernel code in the project folder ...";
           GenKernelCode(dev_, arg_names_, platform_, options_["backend"],
                         options_["project"]);
 

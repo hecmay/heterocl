@@ -378,8 +378,12 @@ def lower(sch,
     stmt = ir_pass.RemoveNoOp(stmt)
     #stmt = ir_pass.RewriteUnsafeSelect(stmt) # We don't really need this
     stmt = ir_pass.AdjustBufferBinding(stmt, arg_list)
-    stmt = ir_pass.InferStream(stmt, arg_list)
-    stmt = ir_pass.AdjustBufferBinding(stmt, arg_list)
+    try:
+        stmt = ir_pass.InferStream(stmt, arg_list)
+        stmt = ir_pass.AdjustBufferBinding(stmt, arg_list)
+    except:
+        pass
+    
     for f in lower_phase3:
         stmt = f(stmt)
     if simple_mode:
@@ -505,7 +509,7 @@ def build_fpga_kernel(sch, args, target, name="default_function", schedule_name=
             if schedule_name != "":
                 folder = "{}-{}".format(schedule_name,target.project)
             else:
-                folder = target.project
+                folder = "project"
             Project.path = folder
             vals.insert(4, folder)
             # make the project folder first

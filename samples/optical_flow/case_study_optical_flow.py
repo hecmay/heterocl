@@ -7,12 +7,17 @@ size = (436, 1024)
 height, width = size
 hcl.init(hcl.Float())
 dtype = hcl.Fixed(32, 22)
+
+# Predefined struct data types
+# Note that HeteroFlow only supports array of struct now 
+# struct of array support will be added in the future release
 s2 = hcl.Struct({"fa": dtype, "fb": dtype})
 s3 = hcl.Struct({"fa": dtype, "fb": dtype, "fc": dtype})
 s6 = hcl.Struct({"fa": dtype, "fb": dtype, "fc": dtype,
                  "fd": dtype, "fe": dtype, "ff": dtype})
 
-target = hcl.Platform.aws_f1
+# Target hardware platforms
+target = hcl.Platform.xilinx_zc706
 
 def optical_flow(target):
     images = [hcl.placeholder(size, "input_image_" + str(_)) for _ in range(5) ]
@@ -24,23 +29,17 @@ def optical_flow(target):
        def calc_x_gradient(input_image, grad_x):
            g_w = hcl.copy([1, -8, 0, 8, 1], "g_w", hcl.Int())
            rx = hcl.reduce_axis(0, 5, name="rdx")
-           def update(y, x):
-               grad_x[y, x+2] = sum(input_image[y, x+rx] * g_w[rx], axis=rx)
-           hcl.mutate((height, width-4), lambda y, x: update(y, x))
-           # hcl.update(grad_x, lambda y, x: 
-           #     hcl.select(hcl.and_(x>=2, x<width-2), 
-           #         sum(input_image[y, x-rx+2] * g_w[rx], axis=rx), 0))
+           hcl.update(grad_x, lambda y, x: 
+               hcl.select(hcl.and_(x>=2, x<width-2), 
+                   sum(input_image[y, x-rx+2] * g_w[rx], axis=rx), 0))
            
        @hcl.def_([size, size])
        def calc_y_gradient(input_image, grad_y):
            g_w = hcl.copy([1, -8, 0, 8, 1], "g_w", hcl.Int())
            ry = hcl.reduce_axis(0, 5, name="rdy")
-           def update(y, x):
-               grad_y[y+2, x] = sum(input_image[y+ry, x] * g_w[ry], axis=ry)
-           hcl.mutate((height-4, width), lambda y, x: update(y, x))
-           # hcl.update(grad_y, lambda y, x: 
-           #     hcl.select(hcl.and_(y>=2, y<height-2), 
-           #         sum(input_image[y-ry+2, x] * g_w[ry], axis=ry), 0))
+           hcl.update(grad_y, lambda y, x: 
+               hcl.select(hcl.and_(y>=2, y<height-2), 
+                   sum(input_image[y-ry+2, x] * g_w[ry], axis=ry), 0))
 
        @hcl.def_([size, size, size, size, size, size])
        def calc_z_gradient(img0, img1, img2, img3, img4, grad_z):
@@ -76,14 +75,11 @@ def optical_flow(target):
            g_f = hcl.copy([0.0755, 0.133, 0.1869, 0.2903, \
                            0.1869, 0.133, 0.0755], "g_f", hcl.Float())
            rd = hcl.reduce_axis(0, 7, name="rd")
-           def update(y, x):
-               filt_grad[y, x+3] = sum(y_filt[y,x+rd] * g_f[rd], axis=rd)
-           hcl.mutate((height, width-6), lambda y, x: update(y, x))
-           # def acc(y, x):
-           #     filt_grad[y, x] = hcl.select(
-           #         hcl.and_(x>=3, x<width-3), 
-           #             sum(y_filt[y, x+rd-3] * g_f[rd], axis=rd), 0)
-           # hcl.mutate(filt_grad.shape, lambda y, x: acc(y, x))
+           def acc(y, x):
+               filt_grad[y, x] = hcl.select(
+                   hcl.and_(x>=3, x<width-3), 
+                       sum(y_filt[y, x+rd-3] * g_f[rd], axis=rd), 0)
+           hcl.mutate(filt_grad.shape, lambda y, x: acc(y, x))
 
        @hcl.def_([size, size], dtypes=[s3, s6])
        def outer_product(filt_grad, out_product):
@@ -161,9 +157,12 @@ def optical_flow(target):
 
     s = hcl.create_schedule([*images, output], kernel)
 
-    # s.to([*images], target.xcel)
-    # s.to(output, target.host)
+    # Move images from host to accelerator
+    s.to([*images], target.xcel)
+    # Move output back to host CPU
+    s.to(output, target.host)
 
+    # Handlers for dataflow stages
     kgx = kernel.calc_x_gradient
     kgy = kernel.calc_y_gradient
     kgz = kernel.calc_z_gradient
@@ -176,23 +175,25 @@ def optical_flow(target):
     ktx = kernel.tensor_weight_x
     kfc = kernel.flow_calc
 
-    # s.reuse_at(kgy.input_image, s[kgy], kgy.axis[0])
-    # s.reuse_at(kgx.input_image, s[kgx], kgx.axis[1])
-    # s.reuse_at(kwy.pack, s[kwy], kwy.axis[0])
-    # s.reuse_at(kwx.y_filt, s[kwx], kwx.axis[1])
-    # s.reuse_at(ktx.tensor_y, s[ktx], ktx.axis[0])
-    # s.reuse_at(kty.out_product, s[kty], kty.axis[0])
+    # Create reuse buffers at specific
+    s.reuse_at(kgy.input_image, s[kgy], axis=0)
+    s.reuse_at(kgx.input_image, s[kgx], axis=1)
+    s.reuse_at(kwy.pack, s[kwy], axis=0)
+    s.reuse_at(kwx.y_filt, s[kwx], axis=1)
+    s.reuse_at(ktx.tensor_y, s[ktx], axis=0)
+    s.reuse_at(kty.out_product, s[kty], axis=0)
 
-    # s.to(kernel.grad_y, s[kpc], s[kgy])
-    # s.to(kernel.grad_x, s[kpc], s[kgx])
-    # s.to(kernel.grad_z, s[kpc], s[kgz])
-    # s.to(kernel.pack,   s[kwy], s[kpc])
-    # s.to(kernel.y_filt, s[kwx], s[kwy])
-    # s.to(kernel.filt_grad, s[kop], s[kwx])
-    # s.to(kernel.out_product, s[kty], s[kop])
-    # s.to(kernel.tensor_y, s[ktx], s[kty])
-    # s.to(kernel.tensor, s[kfc], s[ktx])
-    print(hcl.lower(s)); de
+    s.to(kernel.grad_y, s[kpc], s[kgy], fifo_depth=1024)
+    s.to(kernel.grad_x, s[kpc], s[kgx], fifo_depth=1024)
+    s.to(kernel.grad_z, s[kpc], s[kgz], fifo_depth=1024*4)
+    s.to(kernel.pack,   s[kwy], s[kpc], fifo_depth=1024)
+    s.to(kernel.y_filt, s[kwx], s[kwy], fifo_depth=1024)
+    s.to(kernel.filt_grad, s[kop], s[kwx],   fifo_depth=1024)
+    s.to(kernel.out_product, s[kty], s[kop], fifo_depth=1024)
+    s.to(kernel.tensor_y, s[ktx], s[kty],    fifo_depth=1024)
+    s.to(kernel.tensor, s[kfc], s[ktx],      fifo_depth=1024)
+
+    # build function and return 
     return hcl.build(s, target)
 
 # load ppm image amd convert to grayscale
@@ -212,6 +213,9 @@ imgs = [img0, img1, img2, img3, img4]
 hcl_output = hcl.asarray(np.zeros(size), dtype=s2)    
 imgs = [hcl.asarray(_) for _ in imgs]
 
+# build function
 f = optical_flow(target)
+
+# execute the function
 f(*imgs, hcl_output)
 

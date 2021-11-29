@@ -14,6 +14,7 @@ def replace_text(f_name, prev, new):
 
 
 def run_process(cmd, pattern=None, env=None):
+    debug = True
     if debug: print("[DEBUG] Running commands: \n{}\n".format(cmd))
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, shell=True)
     out, err = p.communicate()

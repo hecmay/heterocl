@@ -329,7 +329,7 @@ class Mutator(object):
         args = self.mutate(node.args)
         body = self.mutate(node.body)
         ret_void = self.mutate(node.ret_void)
-        return _make.KernelDef(args, body, ret_void, node.ret_type, node.name)
+        return _make.KernelDef(args, node.arg_shapes, node.arg_types, node.arg_tensors, body, ret_void, node.ret_type, node.name, node.attributes)
 
     def mutate_KernelStmt(self, node):
         args = self.mutate(node.args)

@@ -251,7 +251,10 @@ class _Schedule(NodeBase):
         -------
         Tensor
         """
-        return _api_internal._ScheduleReuseAt(self, target, parent, axis, name)
+        try:
+            return _api_internal._ScheduleReuseAt(self, target, parent, axis, name)
+        except:
+            pass
 
     def partition(self, target, partition_type, dim, factor):
         return _api_internal._SchedulePartition(self, target, dim, factor, partition_type)

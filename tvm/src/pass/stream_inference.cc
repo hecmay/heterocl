@@ -404,7 +404,7 @@ class AllocateAttrDecorator final : public IRMutator {
         if (index_array.back() < 0) {
           std::string index_array_str;
           HCL_DEBUG_LEVEL(2)
-              << " -- Creating channel buffers on the producer side (write to "
+              << "  [info] Creating channel buffers on the producer side (write to "
               << buf_name << ")...";
           NewChannelCreators ncc(index_array, buf_name, info,
                                  channel_index_to_new_buffers, dtype);
