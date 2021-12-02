@@ -184,6 +184,9 @@ def optical_flow(target):
     s.reuse_at(ktx.tensor_y, s[ktx], axis=0)
     s.reuse_at(kty.out_product, s[kty], axis=0)
 
+    # customize the inter-kernel data movement 
+    # the inter-kernel buffers are transformed into FIFO 
+    # with specific depths, since the data accesses are sequential
     s.to(kernel.grad_y, s[kpc], s[kgy], fifo_depth=1024)
     s.to(kernel.grad_x, s[kpc], s[kgx], fifo_depth=1024)
     s.to(kernel.grad_z, s[kpc], s[kgz], fifo_depth=1024*4)
