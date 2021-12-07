@@ -41,19 +41,14 @@ class ExtractAttachingStages(Mutator):
         self.mutate(body)
         return self.children_stages
 
-# Convert struct bitcasting into struct
-def post_process_hls_code(path):
-    with open(path, "r") as fp:
-        content = fp.read()
-        if "_converter1" in content:
-            util_path = "~/HeteroFlow/optical_flow/u280/"  
-            cmd = f"cp {util_path}/* project/; "
-            run_process(cmd, debug=False)
-    return True
-
 def get_attaching_stages(body):
     return ExtractAttachingStages().analyze(body)
 
 # TODO: add visitor to extract tensor shape
 def get_update_tensor_shape(stage):
     return [10, 32]
+
+def post_process_hls_code(path):
+    img_lib_path = os.path.dirname(os.path.abspath(__file__)) + "/../harness/imageLib/"
+    run_process("cp " + img_lib_path + "* ./project/")
+    return True

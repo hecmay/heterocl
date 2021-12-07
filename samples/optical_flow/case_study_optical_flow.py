@@ -126,10 +126,10 @@ def optical_flow(target):
                  e = hcl.scalar(t.v.fe, "e")
                  f = hcl.scalar(t.v.ff, "f")
                  s = hcl.scalar(a.v*b.v-d.v*d.v, "denom")
-                 r = hcl.scalar(0, dtype=s2)
-                 r.v.fa = (e.v * d.v - b.v * e.v) / s.v
-                 r.v.fb = (e.v * d.v - e.v * a.v) / s.v
-                 output[r,c] = r.v
+                 res = hcl.scalar(0, dtype=s2)
+                 res.v.fa = (e.v * d.v - b.v * e.v) / s.v
+                 res.v.fb = (e.v * d.v - e.v * a.v) / s.v
+                 output[r,c] = res.v
 
        init = lambda *args: 0
        grad_x = hcl.compute(size, init, name="grad_x")
