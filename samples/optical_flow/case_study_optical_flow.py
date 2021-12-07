@@ -18,7 +18,6 @@ s6 = hcl.Struct({"fa": dtype, "fb": dtype, "fc": dtype,
 
 # Target hardware platforms
 target = hcl.Platform.xilinx_zc706
-target.config(compiler="vitis", mode="csyn")
 
 def optical_flow(target):
     images = [hcl.placeholder(size, "input_image_" + str(_)) for _ in range(5) ]
@@ -218,8 +217,19 @@ hcl_output = hcl.asarray(np.zeros(size), dtype=s2)
 imgs = [hcl.asarray(_) for _ in imgs]
 
 # build function
+target.config(compiler="vitis", mode="csyn")
 f = optical_flow(target)
 
 # after executing this function, HeteroFlow compiler generates kernel HLS 
 # code, host OpenCL code along with harness files (e.g., cpp image libs, Makefiles)
 f(*imgs, hcl_output)
+
+# clean up the files and compile for bitstream 
+print("[ WARNING ] Start compiling for bitstream. This may take hours. Please ctrl+C if you do not want to run real hardware")
+decision = input("Press \"y\" to continue...")
+if decision == "y":
+    os.system("rm -rf project")
+    target.config(compiler="vitis", mode="hw_exe")
+    f = optical_flow(target)
+    f(*imgs, hcl_output)
+

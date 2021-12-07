@@ -1,4 +1,5 @@
 import os, subprocess, time, re, glob
+from ..devices import Project
 from ..mutator import Mutator
 from . import expr as _expr
 from . import stmt as _stmt
@@ -50,5 +51,5 @@ def get_update_tensor_shape(stage):
 
 def post_process_hls_code(path):
     img_lib_path = os.path.dirname(os.path.abspath(__file__)) + "/../harness/imageLib/"
-    run_process("cp " + img_lib_path + "* ./project/")
+    run_process("cp " + img_lib_path + "* ./" + Project.path + "/", debug=False)
     return True

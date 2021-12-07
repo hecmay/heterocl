@@ -11,8 +11,6 @@ from . import make as _make
 from . import api as tvm_api
 from . import _api_internal
 
-debug = True
-
 # 1. analyze the data placement in schedule
 # 2. infer compute placement based on user-specified .to()
 @register_func
@@ -376,7 +374,8 @@ def tvm_callback_exec_evaluate(platform, mode, host_only):
             if mode == "csyn":
                 pass
             else:
-                cmd = "make all TARGET=" + mode + " DEVICE=$XDEVICE"
+                project_path = Project.path
+                cmd = f"cd {project_path}; make all TARGET=" + mode + " DEVICE=$XDEVICE"
                 out = run_process(cmd)
 
     elif platform == "aocl":
@@ -536,12 +535,13 @@ def copy_and_compile(platform, mode, backend, host_only, cfg, script):
         with open(os.path.join(Project.path,"config.ini"), "w") as fp:
             fp.write(cfg)
 
+        project_path = Project.path
         if not host_only:
             if mode == "csyn":
                 device = "xilinx_u280_xdma_201920_3"
-                cmd = f"cd project; v++ -t hw_emu --platform $XDEVICE --save-temps -c -k test -o kernel.xo kernel.cpp"
+                cmd = f"cd {project_path}; v++ -t hw_emu --platform $XDEVICE --save-temps -c -k test -o kernel.xo kernel.cpp"
             else:
-                cmd = "make all TARGET=" + mode + " DEVICE=$XDEVICE"
+                cmd = f"cd {project_path}; make all TARGET=" + mode + " DEVICE=$XDEVICE"
         else: cmd += "make host"
         post_process_hls_code(Project.path + "/kernel.cpp")
         out = run_process(cmd)

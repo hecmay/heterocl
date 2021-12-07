@@ -7,6 +7,9 @@ eval "$(~/miniconda/bin/conda shell.bash hook)"
 conda create --name hcl python=3.7 -y
 conda activate hcl
 
+# set up the default target device
+export XDEVICE=/opt/xilinx/platforms/xilinx_u280_xdma_201920_3/xilinx_u280_xdma_201920_3.xpfm
+
 # download and install heterocl 
 git checkout eval
 make -j`nproc`
