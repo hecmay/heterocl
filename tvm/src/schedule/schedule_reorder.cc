@@ -349,10 +349,10 @@ vector<Operation> ExtractSubGraph(
     if (boundary.size() == 1) break;
     if (input.size() == 0) {
       schedule_roll_back = true;
-      LOG(CLEAN)
-          << "[ Critical Warning ] Cannot found the subgraph output " << output
-          << ". The compilation flow requires the device scope to"
-          << " form an enclosed subgraph. Offload the whole program to FPGA...";
+      // LOG(CLEAN)
+      //     << "[ Critical Warning ] Cannot found the subgraph output " << output
+      //     << ". The compilation flow requires the device scope to"
+      //     << " form an enclosed subgraph. Offload the whole program to FPGA...";
       return vector<Operation>();
     }
   }
@@ -472,10 +472,10 @@ vector<Operation> ExtractSubGraph(
 
     if (op.as<ExternOpNode>() == NULL) {
       schedule_roll_back = true;
-      LOG(CLEAN)
-          << "[ Critical Warning ] The graph information is not complete. "
-          << " Found placeholder " << op << " in the extracted subgraph. "
-          << " Offload the whole program to FPGA...";
+      // LOG(CLEAN)
+      //     << "[ Critical Warning ] The graph information is not complete. "
+      //     << " Found placeholder " << op << " in the extracted subgraph. "
+      //     << " Offload the whole program to FPGA...";
       return vector<Operation>();
     }
     auto extern_op = op.as<ExternOpNode>();

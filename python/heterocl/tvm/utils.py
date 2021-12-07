@@ -5,14 +5,12 @@ from . import expr as _expr
 from . import stmt as _stmt
 from . import make as _make
 
-
 def replace_text(f_name, prev, new):
     with open(f_name, 'r') as fp:
         data = fp.read()
     data = data.replace(prev, new)
     with open(f_name, 'w') as fp:
         fp.write(data)
-
 
 def run_process(cmd, pattern=None, env=None, debug=True):
     if debug: print("[DEBUG] Running commands: \n{}\n".format(cmd))
@@ -23,7 +21,6 @@ def run_process(cmd, pattern=None, env=None, debug=True):
     if debug: 
         print("[DEBUG] Commands outputs: \n{}\n".format(out.decode("utf-8")))
     return out.decode("utf-8")
-
 
 class ExtractAttachingStages(Mutator):
     def __init__(self):
