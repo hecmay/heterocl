@@ -217,7 +217,7 @@ hcl_output = hcl.asarray(np.zeros(size), dtype=s2)
 imgs = [hcl.asarray(_) for _ in imgs]
 
 # build function
-target.config(compiler="vitis", mode="csyn")
+target.config(compiler="vitis", mode="csyn", project="project")
 f = optical_flow(target)
 
 # after executing this function, HeteroFlow compiler generates kernel HLS 
@@ -229,7 +229,7 @@ print("[ WARNING ] Start compiling for bitstream. This may take hours. Please ct
 decision = input("Press \"y\" to continue...")
 if decision == "y":
     os.system("rm -rf project")
-    target.config(compiler="vitis", mode="hw_exe")
+    target.config(compiler="vitis", mode="hw_exe", project="project")
     f = optical_flow(target)
     f(*imgs, hcl_output)
 

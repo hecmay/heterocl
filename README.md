@@ -1,70 +1,108 @@
-[![GitHub license](https://dmlc.github.io/img/apache2.svg)](./LICENSE)
-[![CircleCI](https://circleci.com/gh/cornell-zhang/heterocl/tree/master.svg?style=svg&circle-token=2b5ee9faf30b94aac41b61032d03e4654a65079d)](https://circleci.com/gh/cornell-zhang/heterocl/tree/master)
+---
+title: FPGA'22 Artifact Evaluation
+---
 
-HeteroCL: A Multi-Paradigm Programming Infrastructure for Software-Defined Reconfigurable Computing
-===================================================================================================
+## Before Getting Started
+This README provides the instructions to reproduce the results shown in our paper (HeteroFlow: An Accelerator Programming Model with Decoupled Data Placement for Software-Defined FPGAs). To view the final version of our paper, please check the PDF here: [paper](heteroflow-fpga22.pdf)
 
-[Website](http://heterocl.csl.cornell.edu/web/index.html) | [Installation](http://heterocl.csl.cornell.edu/doc/installation.html) | [Tutorials](http://heterocl.csl.cornell.edu/doc/tutorials/index.html) | [Samples](http://heterocl.csl.cornell.edu/doc/samples/index.html) | [Documentation](http://heterocl.csl.cornell.edu/doc/index.html)
+We provided the following two ways for AE reviewers to reproduce the results. Please let us know which one works better for you.
 
-## Introduction
+### Local servers
 
-With the pursuit of improving compute performance under strict power constraints, there is an increasing need for deploying applications to heterogeneous hardware architectures with accelerators, such as GPUs and FPGAs. However, although these heterogeneous computing platforms are becoming widely available, they are very difficult to program especially with FPGAs. As a result, the use of such platforms has been limited to a small subset of programmers with specialized hardware knowledge.
+If you have Vitis and Alveo FPGAs installed in your local server, you can directly go to the "installation" section and execute the commands to re-produce the results. 
 
-To tackle this challenge, we introduce HeteroCL, a programming infrastructure comprised of a Python-based domain-specific language (DSL) and a compilation flow. The HeteroCL DSL provides a clean programming abstraction that decouples algorithm specification from three important types of hardware customization in compute, data types, and memory architectures. HeteroCL can further capture the interdependence among these different customization techniques, allowing programmers to explore various performance/area/accuracy trade-offs in a systematic and productive manner. In addition, our framework currently provides two advanced domain-specific optimizations with stencil analysis and systolic array generation, which produce highly efficient microarchitectures for accelerating popular workloads from image processing and deep learning domains.
+### Azure cloud FPGA instance
 
-## Language Overview
+In case that reviewers do not have the FPGA devices to run the experiments, we will create an Azure FPGA instance equipped with 8 CPU cores, 168 GB memory and an Xilinx U250 FPGA. 
 
-![flow](docs/lang_overview.png)
+To make the evaluation process easier, we will provide reviewers with SSH private keys to login into the instance during the evaluation. Please contact us by email directly and we will share the SSH private key. Please also let us know whenever you are done with the evaluation, so that we can shutdown the instance in time and minimize the cost.
 
-## Current Compilation Flow
+Here is the instructions to connect to the Azure cloud FPGA server. We recommend you to check the devices and runtime environment before proceeding to the evaluation.
 
-![flow](docs/compile_flow.png)
+```shell
+# (optional) change permission of the key if there is bad permission errors
+chmod 400 eval.pem
 
-## Evaluation on AWS F1 (Xilinx Virtex UltraScale+<sup>TM</sup> VU9P FPGA)
-The speedup is over a single-core single-thread CPU execution on AWS F1.
-
-| Benchmark & Data Sizes & Data Type | #LUTs | #FFs | #BRAMs | #DSPs | Freq. (MHz) | CPU Runtime (ms) | FPGA Runtime (ms) | Speedup |
-| :-------- | :----------------: | :----: | :----:| :-----: | :----: | :------------: | :------:| :------: |
-| **[KNN Digit Recognition](samples/digitrec/)**<br/>K=3 #images=1800<br/>`uint49` | 4.1k (0.42%) | 5.5k (0.26%) | 38 (2.0%) | 0 (0.0%) | 250 | 0.73 | 0.07 | 10.4 |
-| **[K-Means](samples/kmeans)**<br/>K=16 #elem=320 x 32<br/>`int32` | 168.2k (16.6%) | 212.1k (10.0%) | 54 (2.8%) | 1.5k (22.5%) | 187 | 65.6 | 0.79 | 83.0 | 
-
-## Publication
-
-If you use HeteroCL in your design, please cite our [FPGA'19 paper](http://www.csl.cornell.edu/~zhiruz/pdfs/heterocl-fpga2019.pdf):
-```
-@article{lai2019heterocl,
-  title={HeteroCL: A Multi-Paradigm Programming Infrastructure for Software-Defined Reconfigurable Computing},
-  author={Lai, Yi-Hsiang and Chi, Yuze and Hu, Yuwei and Wang, Jie and Yu, Cody Hao and 
-          Zhou, Yuan and Cong, Jason and Zhang, Zhiru},
-  journal={Int'l Symp. on Field-Programmable Gate Arrays (FPGA)},
-  year={2019}
-}
+# ssh to Azure FPGA server with private key
+ssh -i eval.pem azureuser@20.115.27.186
+# ensure that Xilinx vitis and XRT are loaded
+v++ --version
+# make sure the FPGA device is present 
+lspci | grep "accelerators"
 ```
 
-## Related Work
+## Installation
+Please make sure the server has the following softwares installed before start building HeteroFlow. For llvm and cmake (marked with asterisk symbols), our build script will automatically install the correct versions if no installations are detected in the system. 
 
-HeteroCL is a Python-based DSL extended from TVM and it extends Halide IR for intermediate representation. HeterCL incoporates the SODA framework, PolySA framework, and Merlin Compiler for FPGA back-end generation.
+```shell
+Xilinx Vitis v2019.2.1 (64-bit) SW Build 2729669
+g++ version >= 4.8.5
+llvm* version >= 6.0.0
+cmake* version >= 3.12.0
+```
 
-* **[Stencil with Optimized Dataflow Architecture](https://vast.cs.ucla.edu/~chiyuze/pub/iccad18.pdf)** (SODA)
-* **[Polyhedral-Based Systolic Array Auto-Compilation](http://cadlab.cs.ucla.edu/~jaywang/papers/iccad18-polysa.pdf)** (PolySA)
-* **[Merlin Compiler](https://www.falconcomputing.com/merlin-fpga-compiler/)**
-* **[Halide](https://halide-lang.org)**
-* **[TVM](https://tvm.ai)**
+If you are using the Azure FPGA cloud server for evaluation, we will create an OS image that has these dependencies pre-installed, and you do not have to worry about it. 
 
-## Contributing to HeteroCL
+After making sure these dependencies are satisfied, please proceed to clone and compile from the source code. To make sure HeteroFlow is correctly installed, please also check the test cases and ensure there is no error (sometimes there will be errors if the compiler is not properly installed)
 
-### Coding Style (Python)
+```shell
+# install and initiate conda environment 
+wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh -O ~/miniconda.sh
+bash ~/miniconda.sh -b -p $HOME/miniconda
+eval "$(~/miniconda/bin/conda shell.bash hook)"
+conda create --name hcl python=3.7 -y
+conda activate hcl
 
-We follow [official Python coding style](https://www.python.org/dev/peps/pep-0008/#descriptive-naming-styles) and use [NumPy docstring style](https://numpydoc.readthedocs.io/en/latest/format.html#other-points-to-keep-in-mind).
+# clone the and compile HeteroFlow code from github
+git clone https://github.com/Hecmay/heterocl.git -b eval
+cd heterocl; export HCL_HOME=$(pwd)
+make -j`nproc`
 
-### Coding Style (C and C++)
+# ensure HeteroFlow is installed
+python -c "import heterocl"
+```
 
-We follow [Google coding style](https://google.github.io/styleguide/cppguide.htm).
+## Code evaluation
+Once you successfully build and install HeteroFlow compiler from source, you can use HeteroFlow to our DSL programs into optimized HLS code, and eventually bitstreams for FPGA execution. 
 
-### Steps
+Since the bitstream compilation can be time-consuming, we also provide you with the pre-compiled bitstream and host program to reproduce the numbers directly (please follow the instructions in the later sections)
+ 
+### Optical Flow
+This application is the first benchmark evaluated in the our paper. Since Azure cloud only provides Xilinx Alveo FPGAs to public, so in this evaluation, we only target the U250 FPGA available on the Azure cloud FPGA server. 
 
-1. Use [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to format your C-related files. The configuration file is in `docs/.clang-format`. Following is a sample command to format the file in place. Note that you need to put the configuration file at the same directory you execute the command.
+```shell
+# 1. go to the work directory
+cd $HCL_HOME/samples/optical_flow
 
-   ``clang-format -i -style=file <cpp-file>``
-2. Use [Pull Request](https://help.github.com/articles/about-pull-requests/). Remember to select the most suitable labels and put it in the title.
-3. Make sure all the tests pass.
+# 2. setup execution environment
+source /opt/xilinx/xrt/setup.sh
+export XDEVICE=/opt/xilinx/platforms/xilinx_u250_gen3x16_xdma_2_1_202010_1/xilinx_u250_gen3x16_xdma_2_1_202010_1.xpfm
+
+# 3. run the HLS code generation and hardware synthesis (a few mins)
+#    after hardware synthesis, you will see the synthesis report
+#    Example:
+#       INFO: [v++ 204-61] Pipelining loop 'VITIS_LOOP_30_1_VITIS_LOOP_31_2'.
+#       INFO: [v++ 200-1470] Pipelining result : Target II = 1, Final II = 1, Depth = 153, loop
+#       INFO: [v++ 200-790] **** Loop Constraint Status: All loop constraints were satisfied.
+#       INFO: [v++ 200-789] **** Estimated Fmax: 411.00 MHz
+#
+#    the program will ask you whether to continue bitstream generation, which
+#    may take hours to finish. If you want to use the pre-built bitstream, just skip
+#    the compilation bu inputting "no".
+python case_study_optical_flow.py
+
+# 4. check the generated HLS code, host (OpenCL) cod, and HLS report.
+#    the source code and utility files are generated under "project" folder.
+vi project/kernel.cpp
+vi project/host.cpp
+vi vi project/_x.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/reports/kernel/hls_reports/test_csynth.rpt
+
+# 5. run the bitstream on real FPGA
+cd project; make host
+./host build_dir.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/kernel.xclbin
+```
+
+
+
+
+

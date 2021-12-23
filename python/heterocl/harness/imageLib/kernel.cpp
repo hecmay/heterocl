@@ -2,8 +2,6 @@
 #include <ap_fixed.h>
 #include <hls_stream.h>
 #include <math.h>
-
-// typedef ap_fixed<32, 20> dtype;
 typedef ap_fixed<32, 22> dtype;
 
 typedef struct {

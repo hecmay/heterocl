@@ -555,12 +555,15 @@ def copy_and_compile(platform, mode, backend, host_only, cfg, script):
             run_process("cp {} ".format(path) + os.path.join(Project.path, "kernel.xclbin"))
 
             kernel = os.path.join(Project.path,"kernel.cpp")
-            with open(kernel, "r") as fp:
-                regex = "HASH:(\d+)\n"
-                hash_v = re.findall(regex, fp.read())[0]
+            try:
+                with open(kernel, "r") as fp:
+                    regex = "HASH:(\d+)\n"
+                    hash_v = re.findall(regex, fp.read())[0]
 
-            cache = os.path.join(Project.path,"save/{}-{}.xclbin".format(mode, hash_v))
-            run_process("cp " + os.path.join(Project.path, "kernel.xclbin") + " {}".format(cache))
+                cache = os.path.join(Project.path,"save/{}-{}.xclbin".format(mode, hash_v))
+                run_process("cp " + os.path.join(Project.path, "kernel.xclbin") + " {}".format(cache))
+            except:
+                pass
         return "success"
 
     elif platform == "aocl":
