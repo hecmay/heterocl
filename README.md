@@ -8,14 +8,13 @@ This README provides the instructions to reproduce the results shown in our pape
 We provided the following two ways for AE reviewers to reproduce the results. Please let us know which one works better for you.
 
 ### Local servers
+If you have Vitis and Alveo FPGAs installed in your local server, you can directly go to the "installation" section and execute the commands to re-produce the results. Otherwise, please check the following subsection "Azure cloud FPGA server".
 
-If you have Vitis and Alveo FPGAs installed in your local server, you can directly go to the "installation" section and execute the commands to re-produce the results. 
+### Azure cloud FPGA server
 
-### Azure cloud FPGA instance
+In case that reviewers do not have the FPGA devices to run the experiments, we have created an Azure FPGA virtual machine equipped with 8 CPU cores, 168 GB memory and an Xilinx U250 FPGA for reviewers to run the experiments and evaluations.
 
-In case that reviewers do not have the FPGA devices to run the experiments, we will create an Azure FPGA instance equipped with 8 CPU cores, 168 GB memory and an Xilinx U250 FPGA. 
-
-To make the evaluation process easier, we will provide reviewers with SSH private keys to login into the instance during the evaluation. Please contact us by email directly and we will share the SSH private key. Please also let us know whenever you are done with the evaluation, so that we can shutdown the instance in time and minimize the cost.
+To make the evaluation process easier, we provide reviewers with SSH private keys to login into the instance during the evaluation. Please contact us by email directly (sx233@cornell.edu) and we will share the SSH private key. Please also let us know whenever you are done with the evaluation, so that we can shutdown the instance in time and minimize the cost.
 
 Here is the instructions to connect to the Azure cloud FPGA server. We recommend you to check the devices and runtime environment before proceeding to the evaluation.
 
@@ -86,23 +85,20 @@ export XDEVICE=/opt/xilinx/platforms/xilinx_u250_gen3x16_xdma_2_1_202010_1/xilin
 #       INFO: [v++ 200-790] **** Loop Constraint Status: All loop constraints were satisfied.
 #       INFO: [v++ 200-789] **** Estimated Fmax: 411.00 MHz
 #
-#    the program will ask you whether to continue bitstream generation, which
-#    may take hours to finish. If you want to use the pre-built bitstream, just skip
-#    the compilation bu inputting "no".
 python case_study_optical_flow.py
 
 # 4. check the generated HLS code, host (OpenCL) cod, and HLS report.
 #    the source code and utility files are generated under "project" folder.
 vi project/kernel.cpp
 vi project/host.cpp
-vi vi project/_x.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/reports/kernel/hls_reports/test_csynth.rpt
+vi project/_x.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/reports/kernel/hls_reports/test_csynth.rpt
 
-# 5. run the bitstream on real FPGA
-cd project; make host
-./host build_dir.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/kernel.xclbin
+# 5. compile the HLS code into bitstream (this takes hours to finish)
+cd project; make all TARGET=hw DEVICE=$XDEVICE
+
+# 6. validate and register the xclbin on Azure for FPGA execution
+source validate.sh
+
+# 7. execute the bitstream on U250 FPGA
+./host kernel.xclbin
 ```
-
-
-
-
-
