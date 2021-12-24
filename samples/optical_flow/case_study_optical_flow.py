@@ -224,12 +224,3 @@ f = optical_flow(target)
 # code, host OpenCL code along with harness files (e.g., cpp image libs, Makefiles)
 f(*imgs, hcl_output)
 
-# clean up the files and compile for bitstream 
-print("[ WARNING ] Start compiling for bitstream. This may take hours. Please ctrl+C if you do not want to run real hardware")
-decision = input("Press \"y\" to continue...")
-if decision == "y":
-    os.system("rm -rf project")
-    target.config(compiler="vitis", mode="hw_exe", project="project")
-    f = optical_flow(target)
-    f(*imgs, hcl_output)
-

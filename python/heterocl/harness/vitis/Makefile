@@ -70,7 +70,7 @@ CLFLAGS += -t $(TARGET) --platform $(DEVICE) --save-temps
 # ifneq ($(TARGET), hw)
 # 	CLFLAGS += -g
 # endif
-LDCLFLAGS += --config config.ini
+LDCLFLAGS += --config config.ini --advanced.param compiler.acceleratorBinaryContent=dcp
 
 
 EXECUTABLE = host
