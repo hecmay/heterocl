@@ -3,7 +3,7 @@ title: FPGA'22 Artifact Evaluation
 ---
 
 ## Before Getting Started
-This README provides the instructions to reproduce the results shown in our paper (HeteroFlow: An Accelerator Programming Model with Decoupled Data Placement for Software-Defined FPGAs). To view the final version of our paper, please check the PDF here: [paper](heteroflow-fpga22.pdf)
+This README provides the instructions to reproduce the results shown in our paper (HeteroFlow: An Accelerator Programming Model with Decoupled Data Placement for Software-Defined FPGAs).
 
 We provided the following two ways for AE reviewers to reproduce the results. Please let us know which one works better for you.
 
