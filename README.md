@@ -96,6 +96,10 @@ vi project/_x.hw.xilinx_u280_xdma_201920_3/reports/kernel/hls_reports/test_csynt
 # 5. compile the HLS code into bitstream (this takes hours to finish)
 cd project; make all TARGET=hw DEVICE=$XDEVICE
 
-# 6. execute the bitstream on U250 FPGA
+# 6. copy the dataset and compiled kernel.xclbin
+cp -r ../dataset .
+cp build_dir.hw.xilinx_u280_xdma_201920_3/kernel.xclbin .
+
+# 7. execute the bitstream on U250 FPGA
 ./host kernel.xclbin
 ```
