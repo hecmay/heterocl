@@ -96,9 +96,6 @@ vi project/_x.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/reports/kernel/hls_report
 # 5. compile the HLS code into bitstream (this takes hours to finish)
 cd project; make all TARGET=hw DEVICE=$XDEVICE
 
-# 6. validate and register the xclbin on Azure for FPGA execution
-source validate.sh
-
-# 7. execute the bitstream on U250 FPGA
+# 6. execute the bitstream on U250 FPGA
 ./host kernel.xclbin
 ```
