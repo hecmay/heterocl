@@ -75,7 +75,7 @@ cd $HCL_HOME/samples/optical_flow
 
 # 2. setup execution environment
 source /opt/xilinx/xrt/setup.sh
-export XDEVICE=/opt/xilinx/platforms/xilinx_u250_gen3x16_xdma_2_1_202010_1/xilinx_u250_gen3x16_xdma_2_1_202010_1.xpfm
+export XDEVICE=/opt/xilinx/platforms/xilinx_u280_xdma_201920_3/xilinx_u280_xdma_201920_3.xpfm
 
 # 3. run the HLS code generation and hardware synthesis (a few mins)
 #    after hardware synthesis, you will see the synthesis report
@@ -91,7 +91,7 @@ python case_study_optical_flow.py
 #    the source code and utility files are generated under "project" folder.
 vi project/kernel.cpp
 vi project/host.cpp
-vi project/_x.hw.xilinx_u250_gen3x16_xdma_2_1_202010_1/reports/kernel/hls_reports/test_csynth.rpt
+vi project/_x.hw.xilinx_u280_xdma_201920_3/reports/kernel/hls_reports/test_csynth.rpt
 
 # 5. compile the HLS code into bitstream (this takes hours to finish)
 cd project; make all TARGET=hw DEVICE=$XDEVICE
