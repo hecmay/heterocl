@@ -2,6 +2,8 @@
 title: FPGA'22 Artifact Evaluation
 ---
 
+[![DOI](https://zenodo.org/badge/203634741.svg)](https://zenodo.org/badge/latestdoi/203634741)
+
 ## Before Getting Started
 This README provides the instructions to reproduce the results shown in our paper (HeteroFlow: An Accelerator Programming Model with Decoupled Data Placement for Software-Defined FPGAs).
 
