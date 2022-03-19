@@ -21,5 +21,5 @@ plt.legend()
 
 plt.xlabel('Number of identical compute unit')  
 plt.ylabel('Time (s)')  
-plt.title('brg-zhang-xcel (xeon-4214; stack size 8192KB)')
+plt.title('local-desktop (i7-8700; stack size 8192KB)')
 plt.savefig('scalability.png')  
