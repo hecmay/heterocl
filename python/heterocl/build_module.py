@@ -67,7 +67,7 @@ def build(schedule, target=None, stmt=None, top=None):
         schedule.DataflowGraph.visit(add_dep)
 
         # Return a super module
-        return HCLSuperModule(modules, deps=task_deps)
+        return HCLSuperModule([], modules, deps=task_deps)
 
     try:
         if isinstance(target, Platform) and str(target.tool.mode) != "debug":
@@ -77,19 +77,18 @@ def build(schedule, target=None, stmt=None, top=None):
         if top is not None:
             if not isinstance(top, list):
                 top = [top]
-            modules = dict()
+            modules = list()
             for func in top:
                 func_mod = func.build(schedule)
-                fname = func.name.replace("Stage_", "")
                 if target is not None:
                     target.top = func.name
                     original_name = target.project
                     target.project = "{}/{}.prj".format(
                         original_name, func.name)
-                    modules[fname] = build_fpga_kernel(func_mod, target, stmt)
+                    modules.append(build_fpga_kernel(func_mod, target, stmt))
                     target.project = original_name
                 else:
-                    modules[fname]= build_llvm(func_mod, target, stmt)
+                    modules.append(build_llvm(func_mod, target, stmt))
             return HCLSuperModule(modules)
         if target is not None:
             return build_fpga_kernel(schedule, target, stmt)
@@ -371,4 +370,5 @@ def build_llvm(schedule, target=None, stmt=None):
         execution_engine = ExecutionEngine(module, opt_level=0)
         hcl_module = HCLModule(name, execution_engine,
                                "llvm", host_src=host_src, return_num=num_results)
+        hcl_module.module = module
         return hcl_module

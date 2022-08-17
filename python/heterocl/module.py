@@ -5,6 +5,7 @@ import numpy as np
 
 from hcl_mlir.dialects import func as func_d
 from hcl_mlir.ir import *
+from hcl_mlir.dialects import hcl as hcl_d
 
 from .context import get_context, get_location
 from .devices import Platform
@@ -101,33 +102,34 @@ class HCLModule(object):
 
 class HCLSuperModule(object):
 
-    def __init__(self, modules, deps=[]):
+    def __init__(self, modules, maps=dict(), deps=[]):
         self.modules = modules
-        self.mod_tasks = dict()
+        self.maps = maps
+        self.mod_map = dict()
+        self.mod_args = dict()
         self.task_deps = deps
 
     def __call__(self, mode="sim"):
         if mode == "hls":
             if len(self.modules) > 1:
                 pool = []
-                for module in self.modules.values():
+                for module in self.modules:
                     pool.append(Process(target=module.run_hls, args=(False,)))
                     pool[-1].start()
                 for p in pool:
                     p.join()
             else:
-                key = self.modules.keys()[0]
-                self.modules[key].run_hls(True)
+                self.modules[0].run_hls(True)
         
         else:
-            # TODO(hecmay): proxy to backend executor
-            print(self.mod_tasks, self.task_deps)
-            
+            hcl_d.tf_execute_tasks(self.mod_map)
+
     
     def task(self, sub_mod, args):
-        self.mod_tasks[sub_mod.fname] = args
+        self.mod_args[sub_mod.fname] = args
+        self.mod_map[sub_mod.fname] = sub_mod.module
     
     def __getattr__(self, key):
-        sub_mod = self.modules[key]
+        sub_mod = self.maps[key]
         sub_mod.fname = key
         return sub_mod
