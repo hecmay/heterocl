@@ -37,12 +37,38 @@ def lower(schedule,
             PassManager.parse(pipeline).run(schedule.device_module)
     except:
         print(schedule.device_module)
+        raise
     return schedule.device_module
 
 
 def build(schedule, target=None, stmt=None, top=None):
     """Build the executable according to the schedule and target.
     """
+    if target == "tf":
+        # Outline each stage into a topped submodule
+        modules = dict()
+        stages = []
+        stage_names = []
+        for op, stage in Stage._mapping:
+            stage_names.append(op.name)
+            stages.append(stage)
+
+        top = schedule.outline(*stages)
+        lowered_module = lower(schedule)
+        for i, (name, func) in enumerate(zip(stage_names, top)):
+            func_mod = func.build(schedule)
+            modules[name] = build_llvm(func_mod, target, stmt)
+
+        # Pull out stages deps in dataflow graph
+        task_deps = list()
+        def add_dep(src, dst):
+            if src.name in stage_names:
+                task_deps.append([src.name, dst.name])
+        schedule.DataflowGraph.visit(add_dep)
+
+        # Return a super module
+        return HCLSuperModule(modules, deps=task_deps)
+
     try:
         if isinstance(target, Platform) and str(target.tool.mode) != "debug":
             for op, stage in Stage._mapping:
@@ -51,18 +77,19 @@ def build(schedule, target=None, stmt=None, top=None):
         if top is not None:
             if not isinstance(top, list):
                 top = [top]
-            modules = []
+            modules = dict()
             for func in top:
                 func_mod = func.build(schedule)
+                fname = func.name.replace("Stage_", "")
                 if target is not None:
                     target.top = func.name
                     original_name = target.project
                     target.project = "{}/{}.prj".format(
                         original_name, func.name)
-                    modules.append(build_fpga_kernel(func_mod, target, stmt))
+                    modules[fname] = build_fpga_kernel(func_mod, target, stmt)
                     target.project = original_name
                 else:
-                    modules.append(build_llvm(func_mod, target, stmt))
+                    modules[fname]= build_llvm(func_mod, target, stmt)
             return HCLSuperModule(modules)
         if target is not None:
             return build_fpga_kernel(schedule, target, stmt)
@@ -321,9 +348,11 @@ def build_llvm(schedule, target=None, stmt=None):
                     break
             else:
                 raise RuntimeError("No function found")
+
             func.attributes['llvm.emit_c_interface'] = UnitAttr.get()
             func.attributes[name] = UnitAttr.get()
             func.attributes['sym_name'] = StringAttr.get("top")
+
         host_src = Module.parse(str(module))
         hcl_d.lower_composite_type(module)
         hcl_d.lower_fixed_to_int(module)
@@ -336,6 +365,7 @@ def build_llvm(schedule, target=None, stmt=None):
         hcl_d.legalize_cast(module)
         hcl_d.remove_stride_map(module)
         hcl_d.lower_hcl_to_llvm(module, ctx)
+        
         # num_results = len(func.type.results)
         num_results = 0
         execution_engine = ExecutionEngine(module, opt_level=0)

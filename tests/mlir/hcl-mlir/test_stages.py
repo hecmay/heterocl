@@ -60,6 +60,7 @@ def test_outline():
     func_B = s[kernel.B].outline()
     func_C = s[kernel.C].outline(merge=func_B)
     func_D = s[kernel.D].outline()
+
     print(s.device_module)
     # func_B_C, func_D = s.outline([s[kernel.B], s[kernel.C]], [s[kernel.D]])
     # func_B, func_C_D = s.outline([s[kernel.B]], [s[kernel.C], s[kernel.D]])
@@ -145,6 +146,34 @@ def test_outline_cpu():
     mod.modules[1](hcl_B, hcl_C, hcl_D)
     print(hcl_D.asnumpy())
 
+
+def test_outline_multitask():
+
+    A = hcl.placeholder((32, 32), "A")
+
+    def kernel(A):
+        B = hcl.compute(A.shape, lambda i, j: A[i, j] + 1, "B")
+        C = hcl.compute(A.shape, lambda i, j: A[i, j] + 1, "C")
+        D = hcl.compute(A.shape, lambda i, j: B[i, j] + C[i, j], "D")
+        return D
+
+    s = hcl.create_schedule([A], kernel)
+    mod = hcl.build(s, target="tf")
+
+    np_A, np_B, np_C, np_D = [np.zeros((32, 32))] * 4
+    hcl_A = hcl.asarray(np_A)
+    hcl_B = hcl.asarray(np_B)
+    hcl_C = hcl.asarray(np_C)
+    hcl_D = hcl.asarray(np_D)
+
+    mod.task(mod.B, [hcl_A, hcl_B])
+    mod.task(mod.C, [hcl_A, hcl_C])
+    mod.task(mod.D, [hcl_A, hcl_B, hcl_C])
+
+    mod()
+
+    print(hcl_D.asnumpy())
+
 def test_module_mixed_paradigm():
     hcl.init()
 
@@ -186,7 +215,8 @@ if __name__ == "__main__":
     # test_stages()
     # test_outline()
     # test_outline_extension()
-    test_outline_extension_unify()
+    # test_outline_extension_unify()
     # test_outline_extension_axis()
     # test_outline_cpu()
+    test_outline_multitask()
     # test_module_mixed_paradigm()

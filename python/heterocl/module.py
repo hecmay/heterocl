@@ -101,16 +101,33 @@ class HCLModule(object):
 
 class HCLSuperModule(object):
 
-    def __init__(self, modules):
+    def __init__(self, modules, deps=[]):
         self.modules = modules
+        self.mod_tasks = dict()
+        self.task_deps = deps
 
-    def __call__(self):
-        if len(self.modules) > 1:
-            pool = []
-            for module in self.modules:
-                pool.append(Process(target=module.run_hls, args=(False,)))
-                pool[-1].start()
-            for p in pool:
-                p.join()
+    def __call__(self, mode="sim"):
+        if mode == "hls":
+            if len(self.modules) > 1:
+                pool = []
+                for module in self.modules.values():
+                    pool.append(Process(target=module.run_hls, args=(False,)))
+                    pool[-1].start()
+                for p in pool:
+                    p.join()
+            else:
+                key = self.modules.keys()[0]
+                self.modules[key].run_hls(True)
+        
         else:
-            self.modules[0].run_hls(True)
+            # TODO(hecmay): proxy to backend executor
+            print(self.mod_tasks, self.task_deps)
+            
+    
+    def task(self, sub_mod, args):
+        self.mod_tasks[sub_mod.fname] = args
+    
+    def __getattr__(self, key):
+        sub_mod = self.modules[key]
+        sub_mod.fname = key
+        return sub_mod
