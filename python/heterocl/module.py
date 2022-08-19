@@ -3,9 +3,11 @@ from multiprocessing import Process
 import warnings
 import numpy as np
 
+import ctypes
 from hcl_mlir.dialects import func as func_d
 from hcl_mlir.ir import *
 from hcl_mlir.dialects import hcl as hcl_d
+from hcl_mlir.runtime import *
 
 from .context import get_context, get_location
 from .devices import Platform
@@ -122,12 +124,18 @@ class HCLSuperModule(object):
                 self.modules[0].run_hls(True)
         
         else:
-            hcl_d.tf_execute_tasks(self.mod_map)
-
+            hcl_d.tf_execute_tasks(self.mod_map, self.mod_args)
     
     def task(self, sub_mod, args):
+        # ctypes_args = [ctypes.pointer(ctypes.pointer(
+        #         get_ranked_memref_descriptor(arg))) for arg in args]
+        # packed_args = (ctypes.c_void_p * len(ctypes_args))()
+        # for argNum in range(len(ctypes_args)):
+        #   packed_args[argNum] = ctypes.cast(ctypes_args[argNum], ctypes.c_void_p)
+        
         self.mod_args[sub_mod.fname] = args
-        self.mod_map[sub_mod.fname] = sub_mod.module
+        # ctypes.void_p_Array
+        self.mod_map[sub_mod.fname] = str(sub_mod.host_src)
     
     def __getattr__(self, key):
         sub_mod = self.maps[key]

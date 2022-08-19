@@ -148,31 +148,23 @@ def test_outline_cpu():
 
 
 def test_outline_multitask():
-
-    A = hcl.placeholder((32, 32), "A")
+    A = hcl.placeholder((32, ), "A")
 
     def kernel(A):
-        B = hcl.compute(A.shape, lambda i, j: A[i, j] + 1, "B")
-        C = hcl.compute(A.shape, lambda i, j: A[i, j] + 1, "C")
-        D = hcl.compute(A.shape, lambda i, j: B[i, j] + C[i, j], "D")
+        B = hcl.compute(A.shape, lambda i : A[i] + 1, "B")
+        C = hcl.compute(A.shape, lambda i : A[i] + 1, "C")
+        D = hcl.compute(A.shape, lambda i : B[i] + C[i], "D")
         return D
 
     s = hcl.create_schedule([A], kernel)
     mod = hcl.build(s, target="tf")
 
-    np_A, np_B, np_C, np_D = [np.zeros((32, 32))] * 4
-    hcl_A = hcl.asarray(np_A)
-    hcl_B = hcl.asarray(np_B)
-    hcl_C = hcl.asarray(np_C)
-    hcl_D = hcl.asarray(np_D)
-
-    mod.task(mod.B, [hcl_A, hcl_B])
-    mod.task(mod.C, [hcl_A, hcl_C])
-    mod.task(mod.D, [hcl_A, hcl_B, hcl_C])
-
+    np_A, np_B, np_C, np_D = [np.zeros((32,))] * 4
+    mod.task(mod.B, [np_A, np_B])
+    mod.task(mod.C, [np_A, np_C])
+    mod.task(mod.D, [np_A, np_B, np_C])
     mod()
 
-    print(hcl_D.asnumpy())
 
 def test_module_mixed_paradigm():
     hcl.init()
